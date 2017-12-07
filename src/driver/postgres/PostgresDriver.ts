@@ -312,31 +312,30 @@ export class PostgresDriver implements Driver {
      * Prepares given value to a value to be persisted, based on its column type or metadata.
      */
     prepareHydratedValue(value: any, columnMetadata: ColumnMetadata): any {
+        if (value !== null && value !== undefined) {
+            if (columnMetadata.type === Boolean) {
+                value = Boolean(value);
+
+            } else if (columnMetadata.type === "datetime"
+                || columnMetadata.type === Date
+                || columnMetadata.type === "timestamp"
+                || columnMetadata.type === "timestamp with time zone"
+                || columnMetadata.type === "timestamp without time zone") {
+                value = DateUtils.normalizeHydratedDate(value);
+
+            } else if (columnMetadata.type === "date") {
+                value = DateUtils.mixedDateToDateString(value);
+
+            } else if (columnMetadata.type === "time") {
+                value = DateUtils.mixedTimeToString(value);
+
+            } else if (columnMetadata.type === "simple-array") {
+                value = DateUtils.stringToSimpleArray(value);
+            }
+        }
+
         if (columnMetadata.transformer)
             value = columnMetadata.transformer.from(value);
-
-        if (value === null || value === undefined)
-            return value;
-
-        if (columnMetadata.type === Boolean) {
-            return value ? true : false;
-
-        } else if (columnMetadata.type === "datetime"
-            || columnMetadata.type === Date
-            || columnMetadata.type === "timestamp"
-            || columnMetadata.type === "timestamp with time zone"
-            || columnMetadata.type === "timestamp without time zone") {
-            return DateUtils.normalizeHydratedDate(value);
-
-        } else if (columnMetadata.type === "date") {
-            return DateUtils.mixedDateToDateString(value);
-
-        } else if (columnMetadata.type === "time") {
-            return DateUtils.mixedTimeToString(value);
-
-        } else if (columnMetadata.type === "simple-array") {
-            return DateUtils.stringToSimpleArray(value);
-        }
 
         return value;
     }

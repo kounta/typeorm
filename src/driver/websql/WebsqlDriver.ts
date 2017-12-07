@@ -94,6 +94,9 @@ export class WebsqlDriver extends AbstractSqliteDriver {
             return JSON.parse(value);
         }
 
+        if (columnMetadata.transformer)
+            value = columnMetadata.transformer.from(value);
+
         return super.prepareHydratedValue(value, columnMetadata);
     }
 
