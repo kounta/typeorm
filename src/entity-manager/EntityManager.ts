@@ -589,8 +589,11 @@ export class EntityManager {
             FindOptionsUtils.applyOptionsToQueryBuilder(qb, findOptions);
 
         if (options) {
-            qb.where(options);
-
+            if (findOptions && findOptions.where) {
+                qb.andWhere(idOrOptionsOrConditions as any);
+            } else {
+                qb.where(idOrOptionsOrConditions as any);
+            }
         } else if (typeof idOrOptionsOrConditions === "string" || typeof idOrOptionsOrConditions === "number" || (idOrOptionsOrConditions as any) instanceof Date) {
             qb.andWhereInIds(metadata.ensureEntityIdMap(idOrOptionsOrConditions));
         }
