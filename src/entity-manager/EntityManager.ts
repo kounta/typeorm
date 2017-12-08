@@ -366,7 +366,7 @@ export class EntityManager {
      * Condition(s) cannot be empty.
      */
     update<Entity>(target: ObjectType<Entity>|EntitySchema<Entity>|string, criteria: string|string[]|number|number[]|Date|Date[]|ObjectID|ObjectID[]|FindOptionsWhere<Entity>, partialEntity: DeepPartial<Entity>, options?: SaveOptions): Promise<UpdateResult> {
-        
+
         // if user passed empty criteria or empty list of criterias, then throw an error
         if (criteria === undefined ||
             criteria === null ||
@@ -375,7 +375,7 @@ export class EntityManager {
 
             return Promise.reject(new Error(`Empty criteria(s) are not allowed for the update method.`));
         }
-        
+
         if (typeof criteria === "string" ||
             typeof criteria === "number" ||
             criteria instanceof Date ||
@@ -404,7 +404,7 @@ export class EntityManager {
      * Condition(s) cannot be empty.
      */
     delete<Entity>(targetOrEntity: ObjectType<Entity>|EntitySchema<Entity>|string, criteria: string|string[]|number|number[]|Date|Date[]|ObjectID|ObjectID[]|FindOptionsWhere<Entity>, options?: RemoveOptions): Promise<DeleteResult> {
-        
+
         // if user passed empty criteria or empty list of criterias, then throw an error
         if (criteria === undefined ||
             criteria === null ||
@@ -413,7 +413,7 @@ export class EntityManager {
 
             return Promise.reject(new Error(`Empty criteria(s) are not allowed for the delete method.`));
         }
-        
+
         if (typeof criteria === "string" ||
             typeof criteria === "number" ||
             criteria instanceof Date ||
