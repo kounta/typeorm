@@ -74,23 +74,26 @@ export class ConnectionOptionsReader {
 
     /**
      * Loads all connection options from a configuration file.
-     *
-     * todo: get in count NODE_ENV somehow
      */
     protected async load(): Promise<ConnectionOptions[]|undefined> {
-
+        const env = PlatformTools.getEnvVariable("NODE_ENV");
+        let filePath = "";
         // try to find any of following configuration formats
         const foundFileFormat = ["env", "js", "ts", "json", "yml", "yaml", "xml"].find(format => {
-            return PlatformTools.fileExist(this.baseFilePath + "." + format);
-        });
+            let filePaths = [
+                ...(env ? [`${this.baseFilePath}.${env}.${format}`] : []),
+                `${this.baseFilePath}.${format}`,
+                ...(env && format === "env" ? [`.${env}.${format}`] : []),
+                ...(format === "env" ? [`.${format}`] : []),
+            ];
+            filePath = filePaths.find(PlatformTools.fileExist) || "";
+            return filePath !== "";
+        }) || "";
 
         // if .env file found then load all its variables into process.env using dotenv package
         if (foundFileFormat === "env") {
             const dotenv = PlatformTools.load("dotenv");
-            dotenv.config({ path: this.baseFilePath + ".env" });
-        } else if (PlatformTools.fileExist(".env")) {
-            const dotenv = PlatformTools.load("dotenv");
-            dotenv.config({ path: ".env" });
+            dotenv.config({ path: filePath });
         }
 
         // try to find connection options from any of available sources of configuration
@@ -98,23 +101,17 @@ export class ConnectionOptionsReader {
         if (PlatformTools.getEnvVariable("TYPEORM_CONNECTION")) {
             connectionOptions = new ConnectionOptionsEnvReader().read();
 
-        } else if (foundFileFormat === "js") {
-            connectionOptions = PlatformTools.load(this.baseFilePath + ".js");
-
-        } else if (foundFileFormat === "ts") {
-            connectionOptions = PlatformTools.load(this.baseFilePath + ".ts");
-
-        } else if (foundFileFormat === "json") {
-            connectionOptions = PlatformTools.load(this.baseFilePath + ".json");
+        } else if (["js", "json", "ts"].indexOf(foundFileFormat) !== -1) {
+            connectionOptions = PlatformTools.load(filePath);
 
         } else if (foundFileFormat === "yml") {
-            connectionOptions = new ConnectionOptionsYmlReader().read(this.baseFilePath + ".yml");
+            connectionOptions = new ConnectionOptionsYmlReader().read(filePath);
 
         } else if (foundFileFormat === "yaml") {
-            connectionOptions = new ConnectionOptionsYmlReader().read(this.baseFilePath + ".yaml");
+            connectionOptions = new ConnectionOptionsYmlReader().read(filePath);
 
         } else if (foundFileFormat === "xml") {
-            connectionOptions = await new ConnectionOptionsXmlReader().read(this.baseFilePath + ".xml");
+            connectionOptions = await new ConnectionOptionsXmlReader().read(filePath);
         }
 
         // normalize and return connection options
