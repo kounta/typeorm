@@ -186,7 +186,7 @@ export class ConnectionOptionsReader {
         if (this.options && this.options.root)
             return this.options.root;
 
-        return PlatformTools.load("app-root-path").path;
+        return process.env.PWD || PlatformTools.load("app-root-path").path;
     }
 
     /**

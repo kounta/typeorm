@@ -7,18 +7,23 @@ import {PromiseUtils} from "../util/PromiseUtils";
 import {QueryRunner} from "../query-runner/QueryRunner";
 import {SqlServerDriver} from "../driver/sqlserver/SqlServerDriver";
 import {MssqlParameter} from "../driver/sqlserver/MssqlParameter";
+import {PlatformTools} from "../platform/PlatformTools";
 
 /**
  * Executes migrations: runs pending and reverts previously executed migrations.
  */
+const DEFAULT_MIGRATION_ENV = "dev";
 export class MigrationExecutor {
 
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
-
+    private migrationEnv: string;
     constructor(protected connection: Connection,
                 protected queryRunner?: QueryRunner) {
+        const env =
+            PlatformTools.getEnvVariable("NODE_ENV") || DEFAULT_MIGRATION_ENV;
+        this.migrationEnv = `${env}.migrations`;
     }
 
     // -------------------------------------------------------------------------
@@ -217,7 +222,7 @@ export class MigrationExecutor {
         const migrationsRaw: ObjectLiteral[] = await this.connection.manager
             .createQueryBuilder(queryRunner)
             .select()
-            .from("migrations", "migrations")
+            .from(this.migrationEnv, "migrations")
             .getRawMany();
 
         return migrationsRaw.map(migrationRaw => {
@@ -266,7 +271,7 @@ export class MigrationExecutor {
         await queryRunner.manager
             .createQueryBuilder()
             .insert()
-            .into("migrations")
+            .into(this.migrationEnv)
             .values(values)
             .execute();
     }
@@ -288,7 +293,7 @@ export class MigrationExecutor {
         await queryRunner.manager
             .createQueryBuilder()
             .delete()
-            .from("migrations")
+            .from(this.migrationEnv)
             .where(conditions)
             .execute();
     }
