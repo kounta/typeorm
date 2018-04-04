@@ -261,11 +261,12 @@ export class RelationMetadata {
         this.isLazy = args.isLazy || false;
         this.isCascadeInsert = args.options.cascade === true || (args.options.cascade instanceof Array && args.options.cascade.indexOf("insert") !== -1);
         this.isCascadeUpdate = args.options.cascade === true || (args.options.cascade instanceof Array && args.options.cascade.indexOf("update") !== -1);
-        this.isNullable = args.options.nullable !== false;
-        this.onDelete = args.options.onDelete;
+        this.isCascadeRemove = args.options.cascade === true || (args.options.cascade instanceof Array && args.options.cascade.indexOf("remove") !== -1);
         this.isPrimary = args.options.primary || false;
+        this.isNullable = args.options.nullable === false || this.isPrimary ? false : true;
+        this.onDelete = args.options.onDelete;
         this.isEager = args.options.eager || false;
-        this.persistenceEnabled = args.options.persistence || true;
+        this.persistenceEnabled = args.options.persistence === false ? false : true;
         this.isTreeParent = args.isTreeParent || false;
         this.isTreeChildren = args.isTreeChildren || false;
         this.type = args.type instanceof Function ? (args.type as () => any)() : args.type;
@@ -290,7 +291,7 @@ export class RelationMetadata {
         const referencedColumns = joinColumns.map(joinColumn => joinColumn.referencedColumn!);
         // console.log("entity", entity);
         // console.log("referencedColumns", referencedColumns);
-        return this.inverseEntityMetadata.getValueMap(entity, referencedColumns);
+        return EntityMetadata.getValueMap(entity, referencedColumns);
     }
 
     /**

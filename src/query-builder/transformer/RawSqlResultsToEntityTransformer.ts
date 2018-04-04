@@ -6,8 +6,10 @@ import {Alias} from "../Alias";
 import {RelationCountLoadResult} from "../relation-count/RelationCountLoadResult";
 import {RelationMetadata} from "../../metadata/RelationMetadata";
 import {OrmUtils} from "../../util/OrmUtils";
-import {EntityMetadata} from "../../metadata/EntityMetadata";
 import {QueryExpressionMap} from "../QueryExpressionMap";
+import {EntityMetadata} from "../../metadata/EntityMetadata";
+import {abbreviate} from "../../util/StringUtils";
+import {OracleDriver} from "../../driver/oracle/OracleDriver";
 
 /**
  * Transforms raw sql results returned from the database into entity object.
@@ -34,9 +36,14 @@ export class RawSqlResultsToEntityTransformer {
      * we need to group our result and we must have some unique id (primary key in our case)
      */
     transform(rawResults: any[], alias: Alias): any[] {
-        return this.group(rawResults, alias)
-            .map(group => this.transformRawResultsGroup(group, alias))
-            .filter(res => res !== undefined);
+        const group = this.group(rawResults, alias);
+        const entities: any[] = [];
+        group.forEach(results => {
+            const entity = this.transformRawResultsGroup(results, alias);
+            if (entity !== undefined)
+                entities.push(entity);
+        });
+        return entities;
     }
 
     // -------------------------------------------------------------------------
@@ -46,21 +53,21 @@ export class RawSqlResultsToEntityTransformer {
     /**
      * Groups given raw results by ids of given alias.
      */
-    protected group(rawResults: any[], alias: Alias): any[][] {
-        const groupedResults: { id: any, items: any[] }[] = [];
+    protected group(rawResults: any[], alias: Alias): Map<string, any[]> {
+        const map = new Map();
+        const keys = alias.metadata.primaryColumns.map(column => this.buildColumnAlias(alias.name, column.databaseName));
         rawResults.forEach(rawResult => {
-            const id = alias.metadata.primaryColumns.map(column => rawResult[alias.name + "_" + column.databaseName]).join("_"); // todo: check partial
+            const id = keys.map(key => rawResult[key]).join("_"); // todo: check partial
             if (!id) return;
 
-            let group = groupedResults.find(groupedResult => groupedResult.id === id);
-            if (!group) {
-                group = { id: id, items: [] };
-                groupedResults.push(group);
+            const items = map.get(id);
+            if (!items) {
+                map.set(id, [rawResult]);
+            } else {
+                items.push(rawResult);
             }
-
-            group.items.push(rawResult);
         });
-        return groupedResults.map(group => group.items);
+        return map;
     }
 
     /**
@@ -68,21 +75,22 @@ export class RawSqlResultsToEntityTransformer {
      */
     protected transformRawResultsGroup(rawResults: any[], alias: Alias): ObjectLiteral|undefined {
         // let hasColumns = false; // , hasEmbeddedColumns = false, hasParentColumns = false, hasParentEmbeddedColumns = false;
-        let entity: any = alias.metadata.create();
+        let metadata = alias.metadata;
 
-        if (alias.metadata.discriminatorColumn) {
-            const discriminatorValues = rawResults.map(result => result[alias.name + "_" + alias.metadata.discriminatorColumn!.databaseName]);
-            const metadata = alias.metadata.childEntityMetadatas.find(childEntityMetadata => {
+        if (metadata.discriminatorColumn) {
+            const discriminatorValues = rawResults.map(result => result[this.buildColumnAlias(alias.name, alias.metadata.discriminatorColumn!.databaseName)]);
+            const discriminatorMetadata = metadata.childEntityMetadatas.find(childEntityMetadata => {
                 return !!discriminatorValues.find(value => value === childEntityMetadata.discriminatorValue);
             });
-            if (metadata)
-                entity = metadata.create();
+            if (discriminatorMetadata)
+                metadata = discriminatorMetadata;
         }
+        let entity: any = metadata.create();
 
         // get value from columns selections and put them into newly created entity
-        const hasColumns = this.transformColumns(rawResults, alias, entity, alias.metadata);
-        const hasRelations = this.transformJoins(rawResults, entity, alias);
-        const hasRelationIds = this.transformRelationIds(rawResults, alias, entity);
+        const hasColumns = this.transformColumns(rawResults, alias, entity, metadata);
+        const hasRelations = this.transformJoins(rawResults, entity, alias, metadata);
+        const hasRelationIds = this.transformRelationIds(rawResults, alias, entity, metadata);
         const hasRelationCounts = this.transformRelationCounts(rawResults, alias, entity);
 
         // if we have at least one selected column then return this entity
@@ -93,7 +101,7 @@ export class RawSqlResultsToEntityTransformer {
         // if we don't have any selected column we should not return entity,
         // except for the case when entity only contain a primary column as a relation to another entity
         // in this case its absolutely possible our entity to not have any columns except a single relation
-        const hasOnlyVirtualPrimaryColumns = alias.metadata.primaryColumns.filter(column => column.isVirtual === false).length === 0; // todo: create metadata.hasOnlyVirtualPrimaryColumns
+        const hasOnlyVirtualPrimaryColumns = metadata.primaryColumns.filter(column => column.isVirtual === false).length === 0; // todo: create metadata.hasOnlyVirtualPrimaryColumns
         if (hasOnlyVirtualPrimaryColumns && (hasRelations || hasRelationIds || hasRelationCounts))
             return entity;
 
@@ -104,8 +112,13 @@ export class RawSqlResultsToEntityTransformer {
     protected transformColumns(rawResults: any[], alias: Alias, entity: ObjectLiteral, metadata: EntityMetadata): boolean {
         let hasData = false;
         metadata.columns.forEach(column => {
-            const value = rawResults[0][alias.name + "_" + column.databaseName];
-            if (value === undefined || column.isVirtual || column.isParentId || column.isDiscriminator)
+
+            // if table inheritance is used make sure this column is not child's column
+            if (metadata.childEntityMetadatas.length > 0 && metadata.childEntityMetadatas.map(metadata => metadata.target).indexOf(column.target) !== -1)
+                return;
+
+            const value = rawResults[0][this.buildColumnAlias(alias.name, column.databaseName)];
+            if (value === undefined || column.isVirtual)
                 return;
 
             // if user does not selected the whole entity or he used partial selection and does not select this particular column
@@ -117,30 +130,18 @@ export class RawSqlResultsToEntityTransformer {
             if (value !== null) // we don't mark it as has data because if we will have all nulls in our object - we don't need such object
                 hasData = true;
         });
-
-        if (alias.metadata.parentEntityMetadata) {
-            alias.metadata.parentEntityMetadata.columns.forEach(column => {
-                const value = rawResults[0]["parentIdColumn_" + alias.metadata.parentEntityMetadata.tableName + "_" + column.databaseName];
-                if (value === undefined || column.isVirtual || column.isParentId || column.isDiscriminator)
-                    return;
-
-                column.setEntityValue(entity, this.driver.prepareHydratedValue(value, column));
-                if (value !== null) // we don't mark it as has data because if we will have all nulls in our object - we don't need such object
-                    hasData = true;
-            });
-        }
         return hasData;
     }
 
     /**
      * Transforms joined entities in the given raw results by a given alias and stores to the given (parent) entity
      */
-    protected transformJoins(rawResults: any[], entity: ObjectLiteral, alias: Alias) {
+    protected transformJoins(rawResults: any[], entity: ObjectLiteral, alias: Alias, metadata: EntityMetadata) {
         let hasData = false;
-        let discriminatorValue: string = "";
 
-        if (alias.metadata.discriminatorColumn)
-            discriminatorValue = rawResults[0][alias.name + "_" + alias.metadata.discriminatorColumn!.databaseName];
+        // let discriminatorValue: string = "";
+        // if (metadata.discriminatorColumn)
+        //     discriminatorValue = rawResults[0][this.buildColumnAlias(alias.name, alias.metadata.discriminatorColumn!.databaseName)];
 
         this.expressionMap.joinAttributes.forEach(join => { // todo: we have problem here - when inner joins are used without selects it still create empty array
 
@@ -152,9 +153,9 @@ export class RawSqlResultsToEntityTransformer {
             if (!join.isSelected)
                 return;
 
-            // this check need to avoid setting properties than not belong to entity when single table inheritance used.
-            const metadata = alias.metadata.childEntityMetadatas.find(childEntityMetadata => discriminatorValue === childEntityMetadata.discriminatorValue);
-            if (metadata && join.relation && metadata.target !== join.relation.target)
+            // this check need to avoid setting properties than not belong to entity when single table inheritance used. (todo: check if we still need it)
+            // const metadata = metadata.childEntityMetadatas.find(childEntityMetadata => discriminatorValue === childEntityMetadata.discriminatorValue);
+            if (join.relation && !metadata.relations.find(relation => relation === join.relation))
                 return;
 
             // some checks to make sure this join is for current alias
@@ -186,7 +187,7 @@ export class RawSqlResultsToEntityTransformer {
         return hasData;
     }
 
-    protected transformRelationIds(rawSqlResults: any[], alias: Alias, entity: ObjectLiteral): boolean {
+    protected transformRelationIds(rawSqlResults: any[], alias: Alias, entity: ObjectLiteral, metadata: EntityMetadata): boolean {
         let hasData = false;
         this.rawRelationIdResults.forEach(rawRelationIdResult => {
             if (rawRelationIdResult.relationIdAttribute.parentAlias !== alias.name)
@@ -199,7 +200,7 @@ export class RawSqlResultsToEntityTransformer {
 
             const idMaps = rawRelationIdResult.results.map(result => {
                 const entityPrimaryIds = this.extractEntityPrimaryIds(relation, result);
-                if (!alias.metadata.compareIds(entityPrimaryIds, valueMap))
+                if (EntityMetadata.compareIds(entityPrimaryIds, valueMap) === false)
                     return;
 
                 let columns: ColumnMetadata[];
@@ -207,6 +208,7 @@ export class RawSqlResultsToEntityTransformer {
                     columns = relation.joinColumns.map(joinColumn => joinColumn);
                 } else if (relation.isOneToMany || relation.isOneToOneNotOwner) {
                     columns = relation.inverseEntityMetadata.primaryColumns.map(joinColumn => joinColumn);
+                    // columns = relation.inverseRelation!.joinColumns.map(joinColumn => joinColumn.referencedColumn!); //.inverseEntityMetadata.primaryColumns.map(joinColumn => joinColumn);
                 } else { // ManyToMany
                     if (relation.isOwning) {
                         columns = relation.inverseJoinColumns.map(joinColumn => joinColumn);
@@ -215,16 +217,18 @@ export class RawSqlResultsToEntityTransformer {
                     }
                 }
 
-                // const idMapColumns = (relation.isOneToMany || relation.isOneToOneNotOwner) ? columns : columns.map(column => column.referencedColumn!);
-                // const idMap = idMapColumns.reduce((idMap, column) => {
-                //     return OrmUtils.mergeDeep(idMap, column.createValueMap(result[column.databaseName]));
-                // }, {} as ObjectLiteral); // need to create reusable function for this process
-
                 const idMap = columns.reduce((idMap, column) => {
+                    let value = result[column.databaseName];
                     if (relation.isOneToMany || relation.isOneToOneNotOwner) {
-                        return OrmUtils.mergeDeep(idMap, column.createValueMap(result[column.databaseName]));
+                        if (column.referencedColumn) // if column is a relation
+                            value = column.referencedColumn.createValueMap(value);
+
+                        return OrmUtils.mergeDeep(idMap, column.createValueMap(value));
                     } else {
-                        return OrmUtils.mergeDeep(idMap, column.referencedColumn!.createValueMap(result[column.databaseName]));
+                        if (column.referencedColumn!.referencedColumn) // if column is a relation
+                            value = column.referencedColumn!.referencedColumn!.createValueMap(value);
+
+                        return OrmUtils.mergeDeep(idMap, column.referencedColumn!.createValueMap(value));
                     }
                 }, {} as ObjectLiteral);
 
@@ -237,6 +241,7 @@ export class RawSqlResultsToEntityTransformer {
                 }
                 return idMap;
             }).filter(result => result);
+
 
             const properties = rawRelationIdResult.relationIdAttribute.mapToPropertyPropertyPath.split(".");
             const mapToProperty = (properties: string[], map: ObjectLiteral, value: any): any => {
@@ -282,7 +287,7 @@ export class RawSqlResultsToEntityTransformer {
                     referenceColumnName = relation.isOwning ? relation.joinColumns[0].referencedColumn!.databaseName : relation.inverseRelation!.joinColumns[0].referencedColumn!.databaseName;
                 }
 
-                const referenceColumnValue = rawSqlResults[0][alias.name + "_" + referenceColumnName]; // we use zero index since its grouped data // todo: selection with alias for entity columns wont work
+                const referenceColumnValue = rawSqlResults[0][this.buildColumnAlias(alias.name, referenceColumnName)]; // we use zero index since its grouped data // todo: selection with alias for entity columns wont work
                 if (referenceColumnValue !== undefined && referenceColumnValue !== null) {
                     entity[rawRelationCountResult.relationCountAttribute.mapToPropertyPropertyName] = 0;
                     rawRelationCountResult.results
@@ -295,6 +300,18 @@ export class RawSqlResultsToEntityTransformer {
             });
 
         return hasData;
+    }
+
+    /**
+     * Builds column alias from given alias name and column name,
+     * If alias length is more than 29, abbreviates column name.
+     */
+    protected buildColumnAlias(aliasName: string, columnName: string): string {
+        const columnAliasName = aliasName + "_" + columnName;
+        if (columnAliasName.length > 29 && this.driver instanceof OracleDriver)
+            return aliasName  + "_" + abbreviate(columnName, 2);
+
+        return columnAliasName;
     }
 
     private createValueMapFromJoinColumns(relation: RelationMetadata, parentAlias: string, rawSqlResults: any[]): ObjectLiteral {
@@ -313,9 +330,9 @@ export class RawSqlResultsToEntityTransformer {
         return columns.reduce((valueMap, column) => {
             rawSqlResults.forEach(rawSqlResult => {
                 if (relation.isManyToOne || relation.isOneToOneOwner) {
-                    valueMap[column.databaseName] = rawSqlResult[parentAlias + "_" + column.databaseName];
+                    valueMap[column.databaseName] = rawSqlResult[this.buildColumnAlias(parentAlias, column.databaseName)];
                 } else {
-                    valueMap[column.databaseName] =  rawSqlResult[parentAlias + "_" + column.referencedColumn!.databaseName];
+                    valueMap[column.databaseName] =  rawSqlResult[this.buildColumnAlias(parentAlias, column.referencedColumn!.databaseName)];
                 }
             });
             return valueMap;

@@ -82,6 +82,7 @@ export class OneToOneInverseSideSubjectBuilder {
 
                 const removedRelatedEntitySubject = new Subject({
                     metadata: relation.inverseEntityMetadata,
+                    parentSubject: subject,
                     canBeUpdated: true,
                     identifier: relatedEntityDatabaseRelationId,
                     changeMaps: [{
@@ -97,12 +98,16 @@ export class OneToOneInverseSideSubjectBuilder {
 
         // extract only relation id from the related entities, since we only need it for comparision
         // by example: extract from category only relation id (category id, or let's say category title, depend on join column options)
-        const relationIdMap = relation.inverseEntityMetadata!.getEntityIdMap(relatedEntity); // by example: relationIdMap is category.id map here, e.g. { id: ... }
+        let relationIdMap = relation.inverseEntityMetadata!.getEntityIdMap(relatedEntity); // by example: relationIdMap is category.id map here, e.g. { id: ... }
 
         // try to find a subject of this related entity, maybe it was loaded or was marked for persistence
         let relatedEntitySubject = this.subjects.find(operateSubject => {
             return !!operateSubject.entity && operateSubject.entity === relatedEntity;
         });
+
+        // if subject with entity was found take subject identifier as relation id map since it may contain extra properties resolved
+        if (relatedEntitySubject)
+            relationIdMap = relatedEntitySubject.identifier;
 
         // if relationIdMap is undefined then it means user binds object which is not saved in the database yet
         // by example: if post contains category which does not have id(s) yet (because its a new category)
@@ -110,13 +115,16 @@ export class OneToOneInverseSideSubjectBuilder {
         //             it does not make sense to perform difference operation for it for both add and remove actions
         if (!relationIdMap) {
 
+            // we decided to remove this error because it brings complications when saving object with non-saved entities
             // if related entity does not have a subject then it means user tries to bind entity which wasn't saved
             // in this persistence because he didn't pass this entity for save or he did not set cascades
             // but without entity being inserted we cannot bind it in the relation operation, so we throw an exception here
+            // if (!relatedEntitySubject)
+            //     throw new Error(`One-to-one inverse relation "${relation.entityMetadata.name}.${relation.propertyPath}" contains ` +
+            //         `entity which does not exist in the database yet, thus cannot be bind in the database. ` +
+            //         `Please setup cascade insertion or save entity before binding it.`);
             if (!relatedEntitySubject)
-                throw new Error(`One-to-one inverse relation "${relation.entityMetadata.name}.${relation.propertyPath}" contains ` +
-                    `entity which does not exist in the database yet, thus cannot be bind in the database. ` +
-                    `Please setup cascade insertion or save entity before binding it.`);
+                return;
 
             // okay, so related subject exist and its marked for insertion, then add a new change map
             // by example: this will tell category to insert into its post relation our post we are working with

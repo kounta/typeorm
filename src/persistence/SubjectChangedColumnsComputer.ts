@@ -1,6 +1,7 @@
 import {Subject} from "./Subject";
 import {DateUtils} from "../util/DateUtils";
 import {ObjectLiteral} from "../common/ObjectLiteral";
+import {EntityMetadata} from "../metadata/EntityMetadata";
 
 /**
  * Finds what columns are changed in the subject entities.
@@ -38,7 +39,6 @@ export class SubjectChangedColumnsComputer {
 
             // ignore special columns
             if (column.isVirtual ||
-                column.isParentId ||
                 column.isDiscriminator ||
                 column.isUpdateDate ||
                 column.isVersion ||
@@ -46,7 +46,7 @@ export class SubjectChangedColumnsComputer {
                 return;
 
             // get user provided value - column value from the user provided persisted entity
-            let entityValue = column.getEntityValue(subject.entity!);
+            const entityValue = column.getEntityValue(subject.entity!);
 
             // we don't perform operation over undefined properties (but we DO need null properties!)
             if (entityValue === undefined)
@@ -64,32 +64,32 @@ export class SubjectChangedColumnsComputer {
                     if (value !== null && value !== undefined)
                         return;
                 }
-
+                let normalizedValue = entityValue;
                 // normalize special values to make proper comparision
                 if (entityValue !== null && entityValue !== undefined) {
                     if (column.type === "date") {
-                        entityValue = DateUtils.mixedDateToDateString(entityValue);
+                        normalizedValue = DateUtils.mixedDateToDateString(entityValue);
 
                     } else if (column.type === "time") {
-                        entityValue = DateUtils.mixedDateToTimeString(entityValue);
+                        normalizedValue = DateUtils.mixedDateToTimeString(entityValue);
 
                     } else if (column.type === "datetime" || column.type === Date) {
-                        entityValue = DateUtils.mixedDateToUtcDatetimeString(entityValue);
+                        normalizedValue = DateUtils.mixedDateToUtcDatetimeString(entityValue);
                         databaseValue = DateUtils.mixedDateToUtcDatetimeString(databaseValue);
 
                     } else if (column.type === "json" || column.type === "jsonb") {
-                        entityValue = JSON.stringify(entityValue);
+                        normalizedValue = JSON.stringify(entityValue);
                         if (databaseValue !== null && databaseValue !== undefined)
                             databaseValue = JSON.stringify(databaseValue);
 
                     } else if (column.type === "sample-array") {
-                        entityValue = DateUtils.simpleArrayToString(entityValue);
+                        normalizedValue = DateUtils.simpleArrayToString(entityValue);
                         databaseValue = DateUtils.simpleArrayToString(databaseValue);
                     }
                 }
 
                 // if value is not changed - then do nothing
-                if (entityValue === databaseValue)
+                if (normalizedValue === databaseValue)
                     return;
             }
 
@@ -134,7 +134,7 @@ export class SubjectChangedColumnsComputer {
                 // if relation entity is just a relation id set (for example post.tag = 1)
                 // then we create an id map from it to make a proper comparision
                 let relatedEntityRelationIdMap: ObjectLiteral = relatedEntity;
-                if (relatedEntityRelationIdMap !== null && !(relatedEntityRelationIdMap instanceof Object))
+                if (relatedEntityRelationIdMap !== null && relatedEntityRelationIdMap instanceof Object)
                     relatedEntityRelationIdMap = relation.getRelationIdMap(relatedEntityRelationIdMap)!;
 
                 // get database related entity. Since loadRelationIds are used on databaseEntity
@@ -142,7 +142,7 @@ export class SubjectChangedColumnsComputer {
                 const databaseRelatedEntityRelationIdMap = relation.getEntityValue(subject.databaseEntity);
 
                 // if relation ids are equal then we don't need to update anything
-                const areRelatedIdsEqual = relation.inverseEntityMetadata.compareIds(relatedEntityRelationIdMap, databaseRelatedEntityRelationIdMap);
+                const areRelatedIdsEqual = EntityMetadata.compareIds(relatedEntityRelationIdMap, databaseRelatedEntityRelationIdMap);
                 if (areRelatedIdsEqual)
                     return;
             }

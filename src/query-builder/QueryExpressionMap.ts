@@ -10,6 +10,7 @@ import {SelectQuery} from "./SelectQuery";
 import {ColumnMetadata} from "../metadata/ColumnMetadata";
 import {RelationMetadata} from "../metadata/RelationMetadata";
 import {QueryBuilder} from "./QueryBuilder";
+import {SelectQueryBuilderOption} from "./SelectQueryBuilderOption";
 
 /**
  * Contains all properties of the QueryBuilder that needs to be build a final query.
@@ -149,11 +150,6 @@ export class QueryExpressionMap {
     disableEscaping: boolean = true;
 
     /**
-     * todo: needs more information.
-     */
-    ignoreParentTablesJoins: boolean = false;
-
-    /**
      * Indicates if virtual columns should be included in entity result.
      *
      * todo: what to do with it? is it properly used? what about persistence?
@@ -199,6 +195,11 @@ export class QueryExpressionMap {
      * Used to identifier your cache queries.
      */
     cacheId: string;
+
+    /**
+     * Options that define QueryBuilder behaviour.
+     */
+    options: SelectQueryBuilderOption[] = [];
 
     /**
      * Property path of relation to work with.
@@ -260,7 +261,7 @@ export class QueryExpressionMap {
      * otherwise it uses default entity order by if it was set.
      */
     get allOrderBys() {
-        if (!Object.keys(this.orderBys).length && this.mainAlias!.hasMetadata) {
+        if (!Object.keys(this.orderBys).length && this.mainAlias!.hasMetadata && this.options.indexOf("disable-global-order") === -1) {
             const entityOrderBy = this.mainAlias!.metadata.orderBy || {};
             return Object.keys(entityOrderBy).reduce((orderBy, key) => {
                 orderBy[this.mainAlias!.name + "." + key] = entityOrderBy[key];
@@ -293,11 +294,11 @@ export class QueryExpressionMap {
     /**
      * Creates a new alias and adds it to the current expression map.
      */
-    createAlias(options: { type: "from"|"select"|"join"|"other", name?: string, target?: Function|string, tableName?: string, subQuery?: string, metadata?: EntityMetadata }): Alias {
+    createAlias(options: { type: "from"|"select"|"join"|"other", name?: string, target?: Function|string, tablePath?: string, subQuery?: string, metadata?: EntityMetadata }): Alias {
 
         let aliasName = options.name;
-        if (!aliasName && options.tableName)
-            aliasName = options.tableName;
+        if (!aliasName && options.tablePath)
+            aliasName = options.tablePath;
         if (!aliasName && options.target instanceof Function)
             aliasName = options.target.name;
         if (!aliasName && typeof options.target === "string")
@@ -311,8 +312,8 @@ export class QueryExpressionMap {
             alias.metadata = options.metadata;
         if (options.target && !alias.hasMetadata)
             alias.metadata = this.connection.getMetadata(options.target);
-        if (options.tableName)
-            alias.tableName = options.tableName;
+        if (options.tablePath)
+            alias.tablePath = options.tablePath;
         if (options.subQuery)
             alias.subQuery = options.subQuery;
 
@@ -382,7 +383,6 @@ export class QueryExpressionMap {
         map.lockVersion = this.lockVersion;
         map.parameters = Object.assign({}, this.parameters);
         map.disableEscaping = this.disableEscaping;
-        map.ignoreParentTablesJoins = this.ignoreParentTablesJoins;
         map.enableRelationIdValues = this.enableRelationIdValues;
         map.extraAppendedAndWhereCondition = this.extraAppendedAndWhereCondition;
         map.subQuery = this.subQuery;

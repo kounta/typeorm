@@ -12,6 +12,10 @@ import {ObjectLiteral} from "../common/ObjectLiteral";
 import {SaveOptions} from "../repository/SaveOptions";
 import {RemoveOptions} from "../repository/RemoveOptions";
 import {BroadcasterResult} from "../subscriber/BroadcasterResult";
+import {OracleDriver} from "../driver/oracle/OracleDriver";
+import {NestedSetSubjectExecutor} from "./tree/NestedSetSubjectExecutor";
+import {ClosureSubjectExecutor} from "./tree/ClosureSubjectExecutor";
+import {MaterializedPathSubjectExecutor} from "./tree/MaterializedPathSubjectExecutor";
 
 /**
  * Executes all database operations (inserts, updated, deletes) that must be executed
@@ -219,9 +223,20 @@ export class SubjectExecutor {
                     bulkInsertSubjects.push(subject);
                     bulkInsertMaps.push(subject.entity!);
                 });
+            } else if (this.queryRunner.connection.driver instanceof OracleDriver) {
+                subjects.forEach(subject => {
+                    singleInsertSubjects.push(subject);
+                });
             } else {
                 subjects.forEach(subject => {
-                    if (subject.changeMaps.length === 0) {
+
+                    // we do not insert in bulk in following cases:
+                    // - when there is no values in insert (only defaults are inserted), since we cannot use DEFAULT VALUES expression for multiple inserted rows
+                    // - when entity is a tree table, since tree tables require extra operation per each inserted row
+                    // - when oracle is used, since oracle's bulk insertion is very bad
+                    if (subject.changeMaps.length === 0 ||
+                        subject.metadata.treeType ||
+                        this.queryRunner.connection.driver instanceof OracleDriver) {
                         singleInsertSubjects.push(subject);
 
                     } else {
@@ -268,25 +283,49 @@ export class SubjectExecutor {
 
                 // insert subjects which must be inserted in separate requests (all default values)
                 if (singleInsertSubjects.length > 0) {
-                    await Promise.all(singleInsertSubjects.map(subject => {
-                        const updatedEntity = {}; // important to have because query builder sets inserted values into it
-                        return this.queryRunner
+                    await PromiseUtils.runInSequence(singleInsertSubjects, async subject => {
+                        subject.insertedValueSet = subject.createValueSetAndPopChangeMap(); // important to have because query builder sets inserted values into it
+
+                        // for nested set we execute additional queries
+                        if (subject.metadata.treeType === "nested-set")
+                            await new NestedSetSubjectExecutor(this.queryRunner).insert(subject);
+
+                        await this.queryRunner
                             .manager
                             .createQueryBuilder()
                             .insert()
                             .into(subject.metadata.target)
-                            .values(updatedEntity)
+                            .values(subject.insertedValueSet)
                             .updateEntity(this.options && this.options.reload === false ? false : true)
                             .callListeners(false)
                             .execute()
                             .then(insertResult => {
                                 subject.identifier = insertResult.identifiers[0];
                                 subject.generatedMap = insertResult.generatedMaps[0];
-                                subject.insertedValueSet = updatedEntity;
                             });
-                    }));
+
+                        // for tree tables we execute additional queries
+                        if (subject.metadata.treeType === "closure-table") {
+                            await new ClosureSubjectExecutor(this.queryRunner).insert(subject);
+
+                        } else if (subject.metadata.treeType === "materialized-path") {
+                            await new MaterializedPathSubjectExecutor(this.queryRunner).insert(subject);
+                        }
+                    });
                 }
             }
+
+            subjects.forEach(subject => {
+                if (subject.generatedMap) {
+                    subject.metadata.columns.forEach(column => {
+                        const value = column.getEntityValue(subject.generatedMap!);
+                        if (value !== undefined && value !== null) {
+                            const preparedValue = this.queryRunner.connection.driver.prepareHydratedValue(value, column);
+                            column.setEntityValue(subject.generatedMap!, preparedValue);
+                        }
+                    });
+                }
+            });
         });
     }
 
@@ -329,6 +368,27 @@ export class SubjectExecutor {
 
                 const updateResult = await updateQueryBuilder.execute();
                 subject.generatedMap = updateResult.generatedMaps[0];
+                if (subject.generatedMap) {
+                    subject.metadata.columns.forEach(column => {
+                        const value = column.getEntityValue(subject.generatedMap!);
+                        if (value !== undefined && value !== null) {
+                            const preparedValue = this.queryRunner.connection.driver.prepareHydratedValue(value, column);
+                            column.setEntityValue(subject.generatedMap!, preparedValue);
+                        }
+                    });
+                }
+
+                // experiments, remove probably, need to implement tree tables children removal
+                // if (subject.updatedRelationMaps.length > 0) {
+                //     await Promise.all(subject.updatedRelationMaps.map(async updatedRelation => {
+                //         if (!updatedRelation.relation.isTreeParent) return;
+                //         if (!updatedRelation.value !== null) return;
+                //
+                //         if (subject.metadata.treeType === "closure-table") {
+                //             await new ClosureSubjectExecutor(this.queryRunner).deleteChildrenOf(subject);
+                //         }
+                //     }));
+                // }
             }
         }));
     }
@@ -419,12 +479,33 @@ export class SubjectExecutor {
 
             // set values to "null" for nullable columns that did not have values
             subject.metadata.columns.forEach(column => {
-                if (!column.isNullable || column.isVirtual)
+
+                // if table inheritance is used make sure this column is not child's column
+                if (subject.metadata.childEntityMetadatas.length > 0 && subject.metadata.childEntityMetadatas.map(metadata => metadata.target).indexOf(column.target) !== -1)
                     return;
 
-                const columnValue = column.getEntityValue(subject.entity!);
-                if (columnValue === undefined)
-                    column.setEntityValue(subject.entity!, null);
+                // entities does not have virtual columns
+                if (column.isVirtual)
+                    return;
+
+                // update nullable columns
+                if (column.isNullable) {
+                    const columnValue = column.getEntityValue(subject.entity!);
+                    if (columnValue === undefined)
+                        column.setEntityValue(subject.entity!, null);
+                }
+
+                // update relational columns
+                if (subject.updatedRelationMaps.length > 0) {
+                    subject.updatedRelationMaps.forEach(updatedRelationMap => {
+                        updatedRelationMap.relation.joinColumns.forEach(column => {
+                            if (column.isVirtual === true)
+                                return;
+
+                            column.setEntityValue(subject.entity!, updatedRelationMap.value instanceof Object ? column.referencedColumn!.getEntityValue(updatedRelationMap.value) : updatedRelationMap.value);
+                        });
+                    });
+                }
             });
 
             // merge into entity all generated values returned by a database

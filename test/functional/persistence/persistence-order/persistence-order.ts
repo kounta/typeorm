@@ -5,6 +5,7 @@ import {Post} from "./entity/Post";
 import {Category} from "./entity/Category";
 import {ConnectionMetadataBuilder} from "../../../../src/connection/ConnectionMetadataBuilder";
 import {EntityMetadataValidator} from "../../../../src/metadata-builder/EntityMetadataValidator";
+import {expect} from "chai";
 
 describe("persistence > order of persistence execution operations", () => {
 
@@ -20,9 +21,9 @@ describe("persistence > order of persistence execution operations", () => {
                 entities: [__dirname + "/entity/*{.js,.ts}"]
             });
             const connectionMetadataBuilder = new ConnectionMetadataBuilder(connection);
-            const entityMetadatas = connectionMetadataBuilder.buildEntityMetadatas([__dirname + "/entity/*{.js,.ts}"], []);
+            const entityMetadatas = connectionMetadataBuilder.buildEntityMetadatas([__dirname + "/entity/*{.js,.ts}"]);
             const entityMetadataValidator = new EntityMetadataValidator();
-            return entityMetadataValidator.validateMany(entityMetadatas, connection.driver).should.be.rejected;
+            expect(() => entityMetadataValidator.validateMany(entityMetadatas, connection.driver)).to.throw(Error);
         });
 
 

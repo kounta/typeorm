@@ -47,6 +47,7 @@ export class JunctionEntityMetadataBuilder {
                 schema: joinTable.schema || relation.entityMetadata.schema,
             }
         });
+        entityMetadata.build();
 
         // create original side junction columns
         const junctionColumns = referencedColumns.map(referencedColumn => {
@@ -54,7 +55,8 @@ export class JunctionEntityMetadataBuilder {
                 return (!joinColumnArgs.referencedColumnName || joinColumnArgs.referencedColumnName === referencedColumn.propertyName) &&
                     !!joinColumnArgs.name;
             }) : undefined;
-            const columnName = joinColumn && joinColumn.name ? joinColumn.name : this.connection.namingStrategy.joinTableColumnName(relation.entityMetadata.tableNameWithoutPrefix, referencedColumn.propertyName, referencedColumn.databaseName);
+            const columnName = joinColumn && joinColumn.name ? joinColumn.name
+                : this.connection.namingStrategy.joinTableColumnName(relation.entityMetadata.tableNameWithoutPrefix, referencedColumn.propertyName, referencedColumn.databaseName);
 
             return new ColumnMetadata({
                 connection: this.connection,
@@ -68,6 +70,12 @@ export class JunctionEntityMetadataBuilder {
                         name: columnName,
                         length: referencedColumn.length,
                         type: referencedColumn.type,
+                        precision: referencedColumn.precision,
+                        scale: referencedColumn.scale,
+                        charset: referencedColumn.charset,
+                        collation: referencedColumn.collation,
+                        zerofill: referencedColumn.zerofill,
+                        unsigned: referencedColumn.zerofill ? true : referencedColumn.unsigned,
                         nullable: false,
                         primary: true,
                     }
@@ -81,7 +89,8 @@ export class JunctionEntityMetadataBuilder {
                 return (!joinColumnArgs.referencedColumnName || joinColumnArgs.referencedColumnName === inverseReferencedColumn.propertyName) &&
                     !!joinColumnArgs.name;
             }) : undefined;
-            const columnName = joinColumn && joinColumn.name ? joinColumn.name : this.connection.namingStrategy.joinTableColumnName(relation.inverseEntityMetadata.tableNameWithoutPrefix, inverseReferencedColumn.propertyName, inverseReferencedColumn.databaseName);
+            const columnName = joinColumn && joinColumn.name ? joinColumn.name
+                : this.connection.namingStrategy.joinTableInverseColumnName(relation.inverseEntityMetadata.tableNameWithoutPrefix, inverseReferencedColumn.propertyName, inverseReferencedColumn.databaseName);
 
             return new ColumnMetadata({
                 connection: this.connection,
@@ -94,6 +103,12 @@ export class JunctionEntityMetadataBuilder {
                     options: {
                         length: inverseReferencedColumn.length,
                         type: inverseReferencedColumn.type,
+                        precision: inverseReferencedColumn.precision,
+                        scale: inverseReferencedColumn.scale,
+                        charset: inverseReferencedColumn.charset,
+                        collation: inverseReferencedColumn.collation,
+                        zerofill: inverseReferencedColumn.zerofill,
+                        unsigned: inverseReferencedColumn.zerofill ? true : inverseReferencedColumn.unsigned,
                         name: columnName,
                         nullable: false,
                         primary: true,

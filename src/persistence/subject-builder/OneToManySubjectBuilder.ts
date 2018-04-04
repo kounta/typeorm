@@ -1,7 +1,7 @@
 import {Subject} from "../Subject";
 import {OrmUtils} from "../../util/OrmUtils";
 import {ObjectLiteral} from "../../common/ObjectLiteral";
-import {EntityMetadataUtils} from "../../metadata/EntityMetadataUtils";
+import {EntityMetadata} from "../../metadata/EntityMetadata";
 import {RelationMetadata} from "../../metadata/RelationMetadata";
 
 /**
@@ -76,12 +76,16 @@ export class OneToManySubjectBuilder {
         // by example: extract from categories only relation ids (category id, or let's say category title, depend on join column options)
         const relatedPersistedEntityRelationIds: ObjectLiteral[] = [];
         relatedEntities.forEach(relatedEntity => { // by example: relatedEntity is a category here
-            const relationIdMap = relation.inverseEntityMetadata!.getEntityIdMap(relatedEntity); // by example: relationIdMap is category.id map here, e.g. { id: ... }
+            let relationIdMap = relation.inverseEntityMetadata!.getEntityIdMap(relatedEntity); // by example: relationIdMap is category.id map here, e.g. { id: ... }
 
             // try to find a subject of this related entity, maybe it was loaded or was marked for persistence
             let relatedEntitySubject = this.subjects.find(subject => {
                 return subject.entity === relatedEntity;
             });
+
+            // if subject with entity was found take subject identifier as relation id map since it may contain extra properties resolved
+            if (relatedEntitySubject)
+                relationIdMap = relatedEntitySubject.identifier;
 
             // if relationIdMap is undefined then it means user binds object which is not saved in the database yet
             // by example: if post contains categories which does not have ids yet (because they are new)
@@ -89,13 +93,13 @@ export class OneToManySubjectBuilder {
             //             it does not make sense to perform difference operation for them for both add and remove actions
             if (!relationIdMap) {
 
-                // if related entity does not have a subject then it means user tries to bind entity which wasn't saved
-                // in this persistence because he didn't pass this entity for save or he did not set cascades
-                // but without entity being inserted we cannot bind it in the relation operation, so we throw an exception here
+                // we decided to remove this error because it brings complications when saving object with non-saved entities
+                // if (!relatedEntitySubject)
+                //     throw new Error(`One-to-many relation "${relation.entityMetadata.name}.${relation.propertyPath}" contains ` +
+                //         `entities which do not exist in the database yet, thus they cannot be bind in the database. ` +
+                //         `Please setup cascade insertion or save entities before binding it.`);
                 if (!relatedEntitySubject)
-                    throw new Error(`One-to-many relation "${relation.entityMetadata.name}.${relation.propertyPath}" contains ` +
-                        `entities which do not exist in the database yet, thus they cannot be bind in the database. ` +
-                        `Please setup cascade insertion or save entities before binding it.`);
+                    return;
 
                 // okay, so related subject exist and its marked for insertion, then add a new change map
                 // by example: this will tell category to insert into its post relation our post we are working with
@@ -129,6 +133,7 @@ export class OneToManySubjectBuilder {
                 if (!relatedEntitySubject) {
                     relatedEntitySubject = new Subject({
                         metadata: relation.inverseEntityMetadata,
+                        parentSubject: subject,
                         canBeUpdated: true,
                         identifier: relationIdMap
                     });
@@ -150,7 +155,7 @@ export class OneToManySubjectBuilder {
         });
 
         // find what related entities were added and what were removed based on difference between what we save and what database has
-        EntityMetadataUtils
+        EntityMetadata
             .difference(relatedEntityDatabaseRelationIds, relatedPersistedEntityRelationIds)
             .forEach(removedRelatedEntityRelationId => { // by example: removedRelatedEntityRelationId is category that was bind in the database before, but now its unbind
 
@@ -159,6 +164,7 @@ export class OneToManySubjectBuilder {
                 // we create a new subject which operations will be executed in subject operation executor
                 const removedRelatedEntitySubject = new Subject({
                     metadata: relation.inverseEntityMetadata,
+                    parentSubject: subject,
                     canBeUpdated: true,
                     identifier: removedRelatedEntityRelationId,
                     changeMaps: [{

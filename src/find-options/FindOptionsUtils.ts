@@ -22,6 +22,7 @@ export class FindOptionsUtils {
                 (
                     possibleOptions.select instanceof Array ||
                     possibleOptions.where instanceof Object ||
+                    typeof possibleOptions.where === "string" ||
                     possibleOptions.relations instanceof Array ||
                     possibleOptions.join instanceof Object ||
                     possibleOptions.order instanceof Object ||
@@ -41,7 +42,9 @@ export class FindOptionsUtils {
         return possibleOptions && (
             this.isFindOneOptions(possibleOptions) ||
             typeof (possibleOptions as FindManyOptions<any>).skip === "number" ||
-            typeof (possibleOptions as FindManyOptions<any>).take === "number"
+            typeof (possibleOptions as FindManyOptions<any>).take === "number" ||
+            typeof (possibleOptions as FindManyOptions<any>).skip === "string" ||
+            typeof (possibleOptions as FindManyOptions<any>).take === "string"
         );
     }
 
@@ -77,9 +80,20 @@ export class FindOptionsUtils {
         if (!options || (!this.isFindOneOptions(options) && !this.isFindManyOptions(options)))
             return qb;
 
+        if (!qb.expressionMap.mainAlias || !qb.expressionMap.mainAlias.hasMetadata)
+            return qb;
+
+        const metadata = qb.expressionMap.mainAlias!.metadata;
+
         // apply all options from FindOptions
         if (options.select) {
-            qb.select(options.select.map(selection => qb.alias + "." + selection));
+            qb.select([]);
+            options.select.forEach(select => {
+                if (!metadata.findColumnWithPropertyPath(select))
+                    throw new Error(`${select} column was not found in the ${metadata.name} entity.`);
+
+                qb.addSelect(qb.alias + "." + select);
+            });
         }
 
         if (options.where)
@@ -94,6 +108,10 @@ export class FindOptionsUtils {
         if (options.order)
             Object.keys(options.order).forEach(key => {
                 const order = ((options as FindOneOptions<T>).order as any)[key as any];
+
+                if (!metadata.findColumnWithPropertyPath(key))
+                    throw new Error(`${key} column was not found in the ${metadata.name} entity.`);
+
                 switch (order) {
                     case 1:
                         qb.addOrderBy(qb.alias + "." + key, "ASC");
@@ -189,12 +207,26 @@ export class FindOptionsUtils {
             const selection = alias + "." + relation;
             qb.leftJoinAndSelect(selection, alias + "_" + relation);
 
+            // join the eager relations of the found relation
+            const relMetadata = metadata.relations.find(metadata => metadata.propertyName === relation);
+            if (relMetadata) {
+                this.joinEagerRelations(qb, alias + "_" + relation, relMetadata.inverseEntityMetadata);
+            }
+
             // remove added relations from the allRelations array, this is needed to find all not found relations at the end
             allRelations.splice(allRelations.indexOf(prefix ? prefix + "." + relation : relation), 1);
 
             // try to find sub-relations
             const join = qb.expressionMap.joinAttributes.find(join => join.entityOrProperty === selection);
-            this.applyRelationsRecursively(qb, allRelations, join!.alias.name, join!.metadata!, relation);
+            this.applyRelationsRecursively(qb, allRelations, join!.alias.name, join!.metadata!, prefix ? prefix + "." + relation : relation);
+        });
+    }
+
+    public static joinEagerRelations(qb: SelectQueryBuilder<any>, alias: string, metadata: EntityMetadata) {
+        metadata.eagerRelations.forEach(relation => {
+            const relationAlias = alias + "_" + relation.propertyPath.replace(".", "_");
+            qb.leftJoinAndSelect(alias + "." + relation.propertyPath, relationAlias);
+            this.joinEagerRelations(qb, relationAlias, relation.inverseEntityMetadata);
         });
     }
 

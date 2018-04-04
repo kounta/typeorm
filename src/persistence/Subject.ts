@@ -2,6 +2,7 @@ import {ObjectLiteral} from "../common/ObjectLiteral";
 import {EntityMetadata} from "../metadata/EntityMetadata";
 import {SubjectChangeMap} from "./SubjectChangeMap";
 import {OrmUtils} from "../util/OrmUtils";
+import {RelationMetadata} from "../metadata/RelationMetadata";
 
 /**
  * Subject is a subject of persistence.
@@ -31,6 +32,17 @@ export class Subject {
      * Insert / Update / Remove operation will be executed by a given identifier.
      */
     identifier: ObjectLiteral|undefined = undefined;
+
+    /**
+     * Copy of entity but with relational ids fulfilled.
+     */
+    entityWithFulfilledIds: ObjectLiteral|undefined = undefined;
+
+    /**
+     * If subject was created by cascades this property will contain subject
+     * from where this subject was created.
+     */
+    parentSubject?: Subject;
 
     /**
      * Gets entity sent to the persistence (e.g. changed entity).
@@ -81,12 +93,18 @@ export class Subject {
      */
     mustBeRemoved: boolean = false;
 
+    /**
+     * Relations updated by the change maps.
+     */
+    updatedRelationMaps: { relation: RelationMetadata, value: ObjectLiteral }[] = [];
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
     constructor(options: {
         metadata: EntityMetadata,
+        parentSubject?: Subject,
         entity?: ObjectLiteral,
         databaseEntity?: ObjectLiteral,
         canBeInserted?: boolean,
@@ -98,6 +116,7 @@ export class Subject {
         this.metadata = options.metadata;
         this.entity = options.entity;
         this.databaseEntity = options.databaseEntity;
+        this.parentSubject = options.parentSubject;
         if (options.canBeInserted !== undefined)
             this.canBeInserted = options.canBeInserted;
         if (options.canBeUpdated !== undefined)
@@ -110,7 +129,15 @@ export class Subject {
             this.changeMaps.push(...options.changeMaps);
 
         if (this.entity) {
-            this.identifier = this.metadata.getEntityIdMap(this.entity);
+            this.entityWithFulfilledIds = Object.assign({}, this.entity);
+            if (this.parentSubject) {
+                this.metadata.primaryColumns.forEach(primaryColumn => {
+                    if (primaryColumn.relationMetadata && primaryColumn.relationMetadata.inverseEntityMetadata === this.parentSubject!.metadata) {
+                        primaryColumn.setEntityValue(this.entityWithFulfilledIds!, this.parentSubject!.entity);
+                    }
+                });
+            }
+            this.identifier = this.metadata.getEntityIdMap(this.entityWithFulfilledIds);
 
         } else if (this.databaseEntity) {
             this.identifier = this.metadata.getEntityIdMap(this.databaseEntity);
@@ -191,9 +218,11 @@ export class Subject {
                         return updateMap;
                     }
                     valueMap = changeMap.relation!.createValueMap(relationId);
+                    this.updatedRelationMaps.push({ relation: changeMap.relation, value: relationId });
 
                 } else { // value can be "null" or direct relation id here
                     valueMap = changeMap.relation!.createValueMap(value);
+                    this.updatedRelationMaps.push({ relation: changeMap.relation, value: value });
                 }
             }
 

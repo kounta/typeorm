@@ -14,6 +14,8 @@ import {ReturningResultsEntityUpdator} from "./ReturningResultsEntityUpdator";
 import {AbstractSqliteDriver} from "../driver/sqlite-abstract/AbstractSqliteDriver";
 import {SqljsDriver} from "../driver/sqljs/SqljsDriver";
 import {BroadcasterResult} from "../subscriber/BroadcasterResult";
+import {EntitySchema} from "../";
+import {OracleDriver} from "../driver/oracle/OracleDriver";
 
 /**
  * Allows to build complex sql queries in a fashion way and execute those queries.
@@ -136,7 +138,8 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
     /**
      * Specifies INTO which entity's table insertion will be executed.
      */
-    into<T>(entityTarget: ObjectType<T>|string, columns?: string[]): InsertQueryBuilder<T> {
+    into<T>(entityTarget: ObjectType<T>|EntitySchema<T>|string, columns?: string[]): InsertQueryBuilder<T> {
+        entityTarget = entityTarget instanceof EntitySchema ? entityTarget.options.name : entityTarget;
         const mainAlias = this.createFromAlias(entityTarget);
         this.expressionMap.setMainAlias(mainAlias);
         this.expressionMap.insertColumns = columns || [];
@@ -233,9 +236,9 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
     protected createInsertExpression() {
 
         const tableName = this.getTableName(this.getMainTableName());
+        const valuesExpression = this.createValuesExpression(); // its important to get values before returning expression because oracle rely on native parameters and ordering of them is important
         const returningExpression = this.createReturningExpression();
         const columnsExpression = this.createColumnNamesExpression();
-        const valuesExpression = this.createValuesExpression();
 
         // generate INSERT query
         let query = `INSERT INTO ${tableName}`;
@@ -269,7 +272,7 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
         }
 
         // add RETURNING expression
-        if (returningExpression && this.connection.driver instanceof PostgresDriver) {
+        if (returningExpression && (this.connection.driver instanceof PostgresDriver || this.connection.driver instanceof OracleDriver)) {
             query += ` RETURNING ${returningExpression}`;
         }
 
@@ -290,7 +293,8 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
                 return this.expressionMap.insertColumns.indexOf(column.propertyPath) !== -1;
 
             // if user did not specified such list then return all columns except auto-increment one
-            if (column.isGenerated && column.generationStrategy === "increment")
+            // for Oracle we return auto-increment column as well because Oracle does not support DEFAULT VALUES expression
+            if (column.isGenerated && column.generationStrategy === "increment" && !(this.connection.driver instanceof OracleDriver))
                 return false;
 
             return true;
@@ -333,7 +337,7 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
                     if (columnIndex === 0) {
                         expression += "(";
                     }
-                    const paramName = "_inserted_" + valueSetIndex + "_" + column.databaseName;
+                    const paramName = "i" + valueSetIndex + "_" + column.databaseName;
 
                     // extract real value from the entity
                     let value = column.getEntityValue(valueSet);
@@ -351,6 +355,23 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
                     // newly inserted entities always have a version equal to 1 (first version)
                     if (column.isVersion) {
                         expression += "1";
+
+                    // } else if (column.isNestedSetLeft) {
+                    //     const tableName = this.connection.driver.escape(column.entityMetadata.tablePath);
+                    //     const rightColumnName = this.connection.driver.escape(column.entityMetadata.nestedSetRightColumn!.databaseName);
+                    //     const subQuery = `(SELECT c.max + 1 FROM (SELECT MAX(${rightColumnName}) as max from ${tableName}) c)`;
+                    //     expression += subQuery;
+                    //
+                    // } else if (column.isNestedSetRight) {
+                    //     const tableName = this.connection.driver.escape(column.entityMetadata.tablePath);
+                    //     const rightColumnName = this.connection.driver.escape(column.entityMetadata.nestedSetRightColumn!.databaseName);
+                    //     const subQuery = `(SELECT c.max + 2 FROM (SELECT MAX(${rightColumnName}) as max from ${tableName}) c)`;
+                    //     expression += subQuery;
+
+                    } else if (column.isDiscriminator) {
+                        this.expressionMap.nativeParameters["discriminator_value"] = this.expressionMap.mainAlias!.metadata.discriminatorValue;
+                        expression += this.connection.driver.createParameter("discriminator_value", parametersCount);
+                        parametersCount++;
                         // return "1";
 
                     // for create and update dates we insert current date
@@ -362,7 +383,7 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
                     // if column is generated uuid and database does not support its generation and custom generated value was not provided by a user - we generate a new uuid value for insertion
                     } else if (column.isGenerated && column.generationStrategy === "uuid" && !this.connection.driver.isUUIDGenerationSupported() && value === undefined) {
 
-                        const paramName = "_uuid_" + column.databaseName + valueSetIndex;
+                        const paramName = "uuid_" + column.databaseName + valueSetIndex;
                         value = RandomGenerator.uuid4();
                         this.expressionMap.nativeParameters[paramName] = value;
                         expression += this.connection.driver.createParameter(paramName, parametersCount);
@@ -395,7 +416,11 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
                         //     value = new ArrayParameter(value);
 
                         this.expressionMap.nativeParameters[paramName] = value;
-                        expression += this.connection.driver.createParameter(paramName, parametersCount);
+                        if (this.connection.driver instanceof MysqlDriver && this.connection.driver.spatialTypes.indexOf(column.type) !== -1) {
+                            expression += `GeomFromText(${this.connection.driver.createParameter(paramName, parametersCount)})`;
+                        } else {
+                            expression += this.connection.driver.createParameter(paramName, parametersCount);
+                        }
                         parametersCount++;
                     }
 
@@ -420,7 +445,7 @@ export class InsertQueryBuilder<Entity> extends QueryBuilder<Entity> {
             // get values needs to be inserted
             return valueSets.map((valueSet, insertionIndex) => {
                 const columnValues = Object.keys(valueSet).map(columnName => {
-                    const paramName = "_inserted_" + insertionIndex + "_" + columnName;
+                    const paramName = "i" + insertionIndex + "_" + columnName;
                     const value = valueSet[columnName];
 
                     // support for SQL expressions in queries

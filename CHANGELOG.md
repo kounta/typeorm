@@ -17,21 +17,19 @@ feel free to ask us and community.
 * now relation id can be set directly to relation, e.g. `Post { @ManyToOne(type => Tag) tag: Tag|number }` with `post.tag = 1` usage.
 * now you can disable persistence on any relation by setting `@OneToMany(type => Post, post => tag, { persistence: false })`. This can dramatically improve entity save performance.
 * `loadAllRelationIds` method of `QueryBuilder` now accepts list of relation paths that needs to be loaded, also `disableMixedMap` option is now by default set to false, but you can enable it via new method parameter `options`
-* lot of changes affect closure table pattern which is planned for fix in 0.3.0 
-* lot of changes affect table inheritance patterns which are planned for fix in 0.3.0 
 * now `returning` and `output` statements of `InsertQueryBuilder` support array of columns as argument
 * now when many-to-many and one-to-many relation set to `null` all items from that relation are removed, just like it would be set to empty array
-* fixed issues with relation updation from one-to-one non-owner side
+* fixed issues with relation update from one-to-one non-owner side
 * now version column is updated on the database level, not by ORM anymore
 * now created date and update date columns is set on the database level, not by ORM anymore (e.g. using `CURRENT_TIMESTAMP` as a default value)
 * now `InsertQueryBuilder`, `UpdateQueryBuilder` and `DeleteQueryBuilder` automatically update entities after execution.
-This only happens if real entity objects are passed. 
+This only happens if real entity objects are passed.
 Some databases (like mysql and sqlite) requires a separate query to perform this operation.
 If you want to disable this behavior use `queryBuilder.updateEntity(false)` method.
 This feature is convenient for users who have uuid, create/update date, version columns or columns with DEFAULT value set.
-* now `InsertQueryBuilder`, `UpdateQueryBuilder` and `DeleteQueryBuilder` call subscribers and listeners. 
-You can disable this behavior by setting `queryBuilder.callListeners(false)` method. 
-* `Repository` and `EntityManager` method `.findOne` is deprecated and will be removed in next 0.3.0 version.
+* now `InsertQueryBuilder`, `UpdateQueryBuilder` and `DeleteQueryBuilder` call subscribers and listeners.
+You can disable this behavior by setting `queryBuilder.callListeners(false)` method.
+* `Repository` and `EntityManager` method `.findOneById` is deprecated and will be removed in next 0.3.0 version.
 Use `findOne(id)` method instead now.
 * `InsertQueryBuilder` now returns `InsertResult` which contains extended information and metadata about runned query
 * `UpdateQueryBuilder` now returns `UpdateResult` which contains extended information and metadata about runned query
@@ -46,6 +44,81 @@ Use `findOne(id)` method instead now.
 * added ability to disable listeners and subscribers in `save` and `remove` operations
 * added ability to save and remove objects in chunks
 * added ability to disable entity reloading after insertion and updation
+* class table inheritance functionality has been completely dropped
+* single table inheritance functionality has been fixed
+* `@SingleEntityChild` has been renamed to `@ChildEntity`
+* `@DiscriminatorValue` has been removed, instead parameter in `@ChildEntity` must be used, e.g. `@ChildEntity("value")`
+* `@DiscriminatorColumn` decorator has been removed, use `@TableInheritance` options instead now
+* `skipSync` in entity options has been renamed to `synchronize`. Now if it set to false schema synchronization for the entity will be disabled.
+By default its true.
+* now array initializations for relations are forbidden and ORM throws an error if there are entities with initialized relation arrays.
+* `@ClosureEntity` decorator has been removed. Instead `@Entity` + `@Tree("closure-table")` must be used
+* added support for nested set and materialized path tree hierarchy patterns
+* breaking change on how array parameters work in queries - now instead of (:param) new syntax must be used (:...param).
+This fixed various issues on how real arrays must work
+* changed the way how entity schemas are created (now more type-safe), now interface EntitySchema is a class
+* added `@Unique` decorator. Accepts custom unique constraint name and columns to be unique. Used only on as 
+composite unique constraint, on table level. E.g. `@Unique("uq_id_name", ["id", "name"])`
+* added `@Check` decorator. Accepts custom check constraint name and expression. Used only on as 
+composite check constraint, on table level. E.g. `@Check("chk_name", "name <> 'asd'")`
+* fixed `Oracle` issues, now it will be fully maintained as other drivers 
+* implemented migrations functionality in all drivers
+* CLI commands changed from `migrations:create`, `migrations:generate`, `migrations:revert` and `migrations:run` to `migration:create`, `migration:generate`, `migration:revert` and `migration:run`
+* changed the way how migrations work (more info in #1315). Now migration table contains `id` column with auto-generated keys, you need to re-create migrations table or add new column manually.
+
+## 0.1.19
+
+* fixed bug in InsertQueryBuilder
+
+## 0.1.18
+
+* fixed timestamp issues
+
+## 0.1.17
+
+* fixed issue with entity order by applied to update query builder
+
+## 0.1.16
+
+* security and bug fixes
+
+## 0.1.15
+
+* security and bug fixes
+
+## 0.1.14
+
+* optimized hydration performance ([#1672](https://github.com/typeorm/typeorm/pull/1672))
+
+## 0.1.13
+
+* added simple-json column type ([#1448](https://github.com/typeorm/typeorm/pull/1488))
+* fixed transform behaviour for timestamp columns ([#1140](https://github.com/typeorm/typeorm/issues/1140))
+* fixed issue with multi-level relations loading ([#1504](https://github.com/typeorm/typeorm/issues/1504))
+
+## 0.1.12
+
+* EntitySubscriber now fires events on subclass entity ([#1369](https://github.com/typeorm/typeorm/issues/1369))
+* fixed error with entity schema validator being async  ([#1448](https://github.com/typeorm/typeorm/issues/1448))
+
+## 0.1.11
+
+* postgres extensions now gracefully handled when user does not have rights to use them ([#1407](https://github.com/typeorm/typeorm/issues/1407))
+
+## 0.1.10
+
+* `sqljs` driver now enforces FK integrity by default (same behavior as `sqlite`)
+* fixed issue that broke browser support in 0.1.8 because of the debug package ([#1344](https://github.com/typeorm/typeorm/pull/1344))
+
+## 0.1.9
+
+* fixed bug with sqlite and mysql schema synchronization when uuid column is used ([#1332](https://github.com/typeorm/typeorm/issues/1332))
+
+## 0.1.8
+
+* New DebugLogger ([#1302](https://github.com/typeorm/typeorm/pull/1302))
+* fixed issue with primary relations being nullable by default - now they are not nullable always
+* fixed issue with multiple databases support when tables with same name are used across multiple databases 
 
 ## 0.1.7
 
@@ -53,7 +126,7 @@ Use `findOne(id)` method instead now.
 * added support for more complex ordering in paginated results ([#1259](https://github.com/typeorm/typeorm/issues/1259))
 * MSSQL users are required to add "order by" for skip/offset operations since mssql does not support OFFSET/LIMIT statement without order by applied 
 * fixed issue when relation query builder methods execute operations with empty arrays ([#1241](https://github.com/typeorm/typeorm/issues/1241))
-* Webpack can now be used for node projects and not only for browser projects. To use TypeORM in Ionic with minimal changes checkout the [ionic-example](https://github.com/typeorm/ionic-example#typeorm--018) for the needed changes. ([#1280](https://github.com/typeorm/typeorm/pulls/1280))
+* Webpack can now be used for node projects and not only for browser projects. To use TypeORM in Ionic with minimal changes checkout the [ionic-example](https://github.com/typeorm/ionic-example#typeorm--017) for the needed changes. To use webpack for non-Ionic browser webpack projects, the needed configuration can be found in the [docs]( http://typeorm.io/#/supported-platforms) ([#1280](https://github.com/typeorm/typeorm/pulls/1280))
 * added support for loading sub-relations in via find options ([#1270](https://github.com/typeorm/typeorm/issues/1270))
 
 ## 0.1.6

@@ -54,9 +54,14 @@ export class SqljsDriver extends AbstractSqliteDriver {
      */
     async disconnect(): Promise<void> {
         return new Promise<void>((ok, fail) => {
-            this.queryRunner = undefined;
-            this.databaseConnection.close();
-            ok();
+            try {
+                this.queryRunner = undefined;
+                this.databaseConnection.close();
+                ok();
+            }
+            catch (e)  {
+                fail(e);
+            }
         });
     }
 
@@ -201,7 +206,7 @@ export class SqljsDriver extends AbstractSqliteDriver {
      * Creates connection with an optional database.
      * If database is specified it is loaded, otherwise a new empty database is created.
      */
-    protected createDatabaseConnectionWithImport(database?: Uint8Array): Promise<any> {
+    protected async createDatabaseConnectionWithImport(database?: Uint8Array): Promise<any> {
         if (database && database.length > 0) {
             this.databaseConnection = new this.sqlite.Database(database);
         }
@@ -209,7 +214,16 @@ export class SqljsDriver extends AbstractSqliteDriver {
             this.databaseConnection = new this.sqlite.Database();
         }
 
-        return Promise.resolve(this.databaseConnection);
+        // Enable foreign keys for database
+        return new Promise<any>((ok, fail) => {
+            try {
+                this.databaseConnection.exec(`PRAGMA foreign_keys = ON;`);
+                ok(this.databaseConnection);
+            }
+            catch (e) {
+                fail(e);
+            }
+        });
     }
 
     /**

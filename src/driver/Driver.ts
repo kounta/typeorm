@@ -6,7 +6,7 @@ import {MappedColumnTypes} from "./types/MappedColumnTypes";
 import {SchemaBuilder} from "../schema-builder/SchemaBuilder";
 import {DataTypeDefaults} from "./types/DataTypeDefaults";
 import {BaseConnectionOptions} from "../connection/BaseConnectionOptions";
-import {TableColumn} from "../schema-builder/schema/TableColumn";
+import {TableColumn} from "../schema-builder/table/TableColumn";
 import {EntityMetadata} from "../metadata/EntityMetadata";
 
 /**
@@ -48,9 +48,24 @@ export interface Driver {
     dataTypeDefaults: DataTypeDefaults;
 
     /**
+     * Gets list of spatial column data types.
+     */
+    spatialTypes: ColumnType[];
+
+    /**
      * Gets list of column data types that support length by a driver.
      */
     withLengthColumnTypes: ColumnType[];
+
+    /**
+     * Gets list of column data types that support precision by a driver.
+     */
+    withPrecisionColumnTypes: ColumnType[];
+
+    /**
+     * Gets list of column data types that support scale by a driver.
+     */
+    withScaleColumnTypes: ColumnType[];
 
     /**
      * Orm has special columns and we need to know what database column types should be for those types.
@@ -70,7 +85,7 @@ export interface Driver {
     afterConnect(): Promise<void>;
 
     /**
-     * Closes connection with database and releases all resourc.
+     * Closes connection with database and releases all resources.
      */
     disconnect(): Promise<void>;
 
@@ -92,8 +107,16 @@ export interface Driver {
 
     /**
      * Escapes a table name, column name or an alias.
+     *
+     * todo: probably escape should be able to handle dots in the names and automatically escape them
      */
     escape(name: string): string;
+
+    /**
+     * Build full table name with database name, schema name and table name.
+     * E.g. "myDB"."mySchema"."myTable"
+     */
+    buildTableName(tableName: string, schema?: string, database?: string): string;
 
     /**
      * Prepares given value to a value to be persisted, based on its column type and metadata.
@@ -108,12 +131,12 @@ export interface Driver {
     /**
      * Transforms type of the given column to a database column type.
      */
-    normalizeType(column: { type?: ColumnType, length?: number | string, precision?: number, scale?: number, isArray?: boolean }): string;
+    normalizeType(column: { type?: ColumnType|string, length?: number|string, precision?: number|null, scale?: number, isArray?: boolean }): string;
 
     /**
      * Normalizes "default" value of the column.
      */
-    normalizeDefault(column: ColumnMetadata): string;
+    normalizeDefault(columnMetadata: ColumnMetadata): string;
 
     /**
      * Normalizes "isUnique" value of the column.
@@ -148,6 +171,12 @@ export interface Driver {
      * Creates generated map of values generated or returned by database after INSERT query.
      */
     createGeneratedMap(metadata: EntityMetadata, insertResult: any): ObjectLiteral|undefined;
+
+    /**
+     * Differentiate columns of this table and columns from the given column metadatas columns
+     * and returns only changed.
+     */
+    findChangedColumns(tableColumns: TableColumn[], columnMetadatas: ColumnMetadata[]): ColumnMetadata[];
 
     /**
      * Returns true if driver supports RETURNING / OUTPUT statement.

@@ -91,7 +91,6 @@ describe("Connection", () => {
                     password: "test",
                     database: "test",
                     entities: [],
-                    entitySchemas: [],
                     dropSchema: false,
                     schemaCreate: false,
                     enabledDrivers: ["mysql"],
@@ -221,7 +220,7 @@ describe("Connection", () => {
 
     });
 
-    describe("skip schema generation when skipSync option is used", function() {
+    describe("skip schema generation when synchronize option is set to false", function() {
 
         let connections: Connection[];
         beforeEach(() => createTestingConnections({ entities: [View], dropSchema: true }).then(all => connections = all));
