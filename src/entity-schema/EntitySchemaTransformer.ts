@@ -63,7 +63,7 @@ export class EntitySchemaTransformer {
                     propertyName: columnName,
                     options: {
                         type: tableColumn.type,
-                        name: tableColumn.name,
+                        name: tableColumn.objectId ? "_id" : tableColumn.name,
                         length: tableColumn.length,
                         primary: tableColumn.primary,
                         unique: tableColumn.unique,
@@ -100,6 +100,7 @@ export class EntitySchemaTransformer {
                         isTreeParent: relationSchema.isTreeParent,
                         isTreeChildren: relationSchema.isTreeChildren,
                         options: {
+                            eager: relationSchema.isEager || false,
                             cascade: relationSchema.cascade,
                             nullable: relationSchema.nullable,
                             onDelete: relationSchema.onDelete
@@ -156,7 +157,8 @@ export class EntitySchemaTransformer {
                     const indexAgrs: IndexMetadataArgs = {
                         target: options.target || options.name,
                         name: indexName,
-                        unique: tableIndex.unique,
+                        unique: tableIndex.unique === true ? true : false,
+                        synchronize: tableIndex.synchronize === false ? false : true,
                         sparse: tableIndex.sparse,
                         columns: tableIndex.columns
                     };

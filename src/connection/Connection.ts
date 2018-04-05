@@ -10,7 +10,7 @@ import {TreeRepository} from "../repository/TreeRepository";
 import {NamingStrategyInterface} from "../naming-strategy/NamingStrategyInterface";
 import {EntityMetadata} from "../metadata/EntityMetadata";
 import {Logger} from "../logger/Logger";
-import {EntityMetadataNotFound} from "../error/EntityMetadataNotFound";
+import {EntityMetadataNotFoundError} from "../error/EntityMetadataNotFoundError";
 import {MigrationInterface} from "../migration/MigrationInterface";
 import {MigrationExecutor} from "../migration/MigrationExecutor";
 import {MongoRepository} from "../repository/MongoRepository";
@@ -27,13 +27,13 @@ import {SelectQueryBuilder} from "../query-builder/SelectQueryBuilder";
 import {LoggerFactory} from "../logger/LoggerFactory";
 import {QueryResultCacheFactory} from "../cache/QueryResultCacheFactory";
 import {QueryResultCache} from "../cache/QueryResultCache";
-import {SqlServerDriver} from "../driver/sqlserver/SqlServerDriver";
-import {MysqlDriver} from "../driver/mysql/MysqlDriver";
-import {PromiseUtils} from "../util/PromiseUtils";
 import {SqljsEntityManager} from "../entity-manager/SqljsEntityManager";
 import {RelationLoader} from "../query-builder/RelationLoader";
 import {RelationIdLoader} from "../query-builder/RelationIdLoader";
 import {EntitySchema} from "../";
+import {SqlServerDriver} from "../driver/sqlserver/SqlServerDriver";
+import {MysqlDriver} from "../driver/mysql/MysqlDriver";
+import {PromiseUtils} from "../";
 
 /**
  * Connection is a single database ORM connection to a specific database.
@@ -146,7 +146,7 @@ export class Connection {
 
     /**
      * Gets a sql.js specific Entity Manager that allows to perform special load and save operations
-     * 
+     *
      * Available only in connection with the sqljs driver.
      */
     get sqljsManager(): SqljsEntityManager {
@@ -250,22 +250,18 @@ export class Connection {
      * Be careful with this method on production since this method will erase all your database tables and their data.
      * Can be used only after connection to the database is established.
      */
+    // TODO rename
     async dropDatabase(): Promise<void> {
-        const queryRunner = this.createQueryRunner("master");
-        const schemas = this.entityMetadatas
-            .filter(metadata => metadata.schema)
-            .map(metadata => metadata.schema!);
-
+        const queryRunner = await this.createQueryRunner("master");
         if (this.driver instanceof SqlServerDriver || this.driver instanceof MysqlDriver) {
             const databases: string[] = this.driver.database ? [this.driver.database] : [];
             this.entityMetadatas.forEach(metadata => {
                 if (metadata.database && databases.indexOf(metadata.database) === -1)
                     databases.push(metadata.database);
             });
-
-            await PromiseUtils.runInSequence(databases, database => queryRunner.clearDatabase(schemas, database));
+            await PromiseUtils.runInSequence(databases, database => queryRunner.clearDatabase(database));
         } else {
-            await queryRunner.clearDatabase(schemas);
+            await queryRunner.clearDatabase();
         }
         await queryRunner.release();
     }
@@ -274,12 +270,14 @@ export class Connection {
      * Runs all pending migrations.
      * Can be used only after connection to the database is established.
      */
-    async runMigrations(): Promise<void> {
-
+    async runMigrations(options?: { transaction?: boolean }): Promise<void> {
         if (!this.isConnected)
             throw new CannotExecuteNotConnectedError(this.name);
 
         const migrationExecutor = new MigrationExecutor(this);
+        if (options && options.transaction === false) {
+            migrationExecutor.transaction = false;
+        }
         await migrationExecutor.executePendingMigrations();
     }
 
@@ -287,12 +285,15 @@ export class Connection {
      * Reverts last executed migration.
      * Can be used only after connection to the database is established.
      */
-    async undoLastMigration(): Promise<void> {
+    async undoLastMigration(options?: { transaction?: boolean }): Promise<void> {
 
         if (!this.isConnected)
             throw new CannotExecuteNotConnectedError(this.name);
 
         const migrationExecutor = new MigrationExecutor(this);
+        if (options && options.transaction === false) {
+            migrationExecutor.transaction = false;
+        }
         await migrationExecutor.undoLastMigration();
     }
 
@@ -309,7 +310,7 @@ export class Connection {
     getMetadata(target: Function|EntitySchema<any>|string): EntityMetadata {
         const metadata = this.findMetadata(target);
         if (!metadata)
-            throw new EntityMetadataNotFound(target);
+            throw new EntityMetadataNotFoundError(target);
 
         return metadata;
     }
@@ -434,7 +435,7 @@ export class Connection {
 
         return relationMetadata.junctionEntityMetadata;
     }
-    
+
     /**
      * Creates an Entity Manager for the current connection with the help of the EntityManagerFactory.
      */

@@ -62,6 +62,7 @@ Before creating a new migration you need to setup your connection options proper
     "password": "test",
     "database": "test",
     "entities": ["entity/*.js"],
+    "migrationsTableName": "custom_migration_table",
     "migrations": ["migration/*.js"],
     "cli": {
         "migrationsDir": "migration"
@@ -69,15 +70,15 @@ Before creating a new migration you need to setup your connection options proper
 }
 ```
 
-Here we setup two options:
-
+Here we setup three options:
+* `"migrationsTableName": "migrations"` - Specify this option only if you need migration table name to be different from `"migrations"`.
 * `"migrations": ["migration/*.js"]` - indicates that typeorm must load migrations from the given "migration" directory.
 * `"cli": { "migrationsDir": "migration" }` - indicates that the CLI must create new migrations in the "migration" directory.
 
 Once you setup connection options you can create a new migration using CLI:
 
 ```
-typeorm migrations:create -n PostRefactoring
+typeorm migration:create -n PostRefactoring
 ```
 
 To use CLI commands, you need to install typeorm globally (`npm i typeorm -g`).
@@ -141,7 +142,7 @@ export class PostRefactoringTIMESTAMP implements MigrationInterface {
 Once you have a migration to run on production, you can run them using a CLI command:
 
 ```
-typeorm migrations:run
+typeorm migration:run
 ```
 
 This command will execute all pending migrations and run them in a sequence ordered by their timestamps.
@@ -151,7 +152,7 @@ That's all! Now you have your database schema up-to-date.
 If for some reason you want to revert the changes, you can run:
 
 ```
-typeorm migrations:revert
+typeorm migration:revert
 ```
 
 This command will execute `down` in the latest executed migration. 
@@ -165,7 +166,7 @@ Let's say you have a `Post` entity with a `title` column, and you have changed t
 You can run following command:
 
 ```
-typeorm migrations:generate -n PostRefactoring
+typeorm migration:generate -n PostRefactoring
 ```
 
 And it will generate a new migration called `{TIMESTAMP}-PostRefactoring.ts` with the following content:

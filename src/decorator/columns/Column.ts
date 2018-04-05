@@ -11,6 +11,7 @@ import {ColumnEnumOptions} from "../options/ColumnEnumOptions";
 import {ColumnEmbeddedOptions} from "../options/ColumnEmbeddedOptions";
 import {EmbeddedMetadataArgs} from "../../metadata-args/EmbeddedMetadataArgs";
 import {ColumnTypeUndefinedError} from "../../error/ColumnTypeUndefinedError";
+import {ColumnHstoreOptions} from "../options/ColumnHstoreOptions";
 
 /**
  * Column decorator is used to mark a specific class property as a table column. Only properties decorated with this
@@ -51,6 +52,12 @@ export function Column(type: "enum", options?: ColumnCommonOptions & ColumnEnumO
 /**
  * Column decorator is used to mark a specific class property as a table column.
  * Only properties decorated with this decorator will be persisted to the database when entity be saved.
+ */
+export function Column(type: "hstore", options?: ColumnCommonOptions & ColumnHstoreOptions): Function;
+
+/**
+ * Column decorator is used to mark a specific class property as a table column.
+ * Only properties decorated with this decorator will be persisted to the database when entity be saved.
  *
  * Property in entity can be marked as Embedded, and on persist all columns from the embedded are mapped to the
  * single table of the entity where Embedded is used. And on hydration all columns which supposed to be in the
@@ -85,6 +92,10 @@ export function Column(typeOrOptions?: ((type?: any) => Function)|ColumnType|(Co
         if (!options.type && type)
             options.type = type;
 
+        // specify HSTORE type if column is HSTORE
+        if (options.type === "hstore" && !options.hstoreType)
+            options.hstoreType = reflectMetadataType === Object ? "object" : "string";
+
         if (typeOrOptions instanceof Function) { // register an embedded
             getMetadataArgsStorage().embeddeds.push({
                 target: object.constructor,
@@ -99,6 +110,10 @@ export function Column(typeOrOptions?: ((type?: any) => Function)|ColumnType|(Co
             // if we still don't have a type then we need to give error to user that type is required
             if (!options.type)
                 throw new ColumnTypeUndefinedError(object, propertyName);
+
+            // create unique
+            if (options.unique === true)
+                getMetadataArgsStorage().uniques.push({ target: object.constructor, columns: [propertyName] });
 
             getMetadataArgsStorage().columns.push({
                 target: object.constructor,

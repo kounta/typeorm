@@ -4,6 +4,9 @@ import {Connection} from "../../src/connection/Connection";
 import {EntitySchema} from "../../src/entity-schema/EntitySchema";
 import {DatabaseType} from "../../src/driver/types/DatabaseType";
 import {NamingStrategyInterface} from "../../src/naming-strategy/NamingStrategyInterface";
+import {PromiseUtils} from "../../src/util/PromiseUtils";
+import {PostgresDriver} from "../../src/driver/postgres/PostgresDriver";
+import {SqlServerDriver} from "../../src/driver/sqlserver/SqlServerDriver";
 
 /**
  * Interface in which data is stored in ormconfig.json of the project.
@@ -83,7 +86,7 @@ export interface TestingOptions {
     /**
      * Schema name used for postgres driver.
      */
-    cache?: boolean|{
+    cache?: boolean | {
 
         /**
          * Type of caching.
@@ -92,7 +95,7 @@ export interface TestingOptions {
          * - "mongodb" means cached values will be stored in mongodb database. You must provide mongodb connection options.
          * - "redis" means cached values will be stored inside redis. You must provide redis connection options.
          */
-        type?: "database"|"redis";
+        type?: "database" | "redis";
 
         /**
          * Used to provide mongodb / redis connection options.
@@ -216,7 +219,40 @@ export function setupTestingConnections(options?: TestingOptions): ConnectionOpt
  * and given options that can override some of its configuration for the test-specific use case.
  */
 export async function createTestingConnections(options?: TestingOptions): Promise<Connection[]> {
-    return createConnections(setupTestingConnections(options));
+    const connections = await createConnections(setupTestingConnections(options));
+    await Promise.all(connections.map(async connection => {
+        // create new databases
+        const databases: string[] = [];
+        connection.entityMetadatas.forEach(metadata => {
+            if (metadata.database && databases.indexOf(metadata.database) === -1)
+                databases.push(metadata.database);
+        });
+
+        const queryRunner = connection.createQueryRunner();
+        await PromiseUtils.runInSequence(databases, database => queryRunner.createDatabase(database, true));
+
+        // create new schemas
+        if (connection.driver instanceof PostgresDriver || connection.driver instanceof SqlServerDriver) {
+            const schemaPaths: string[] = [];
+            connection.entityMetadatas
+                .filter(entityMetadata => !!entityMetadata.schemaPath)
+                .forEach(entityMetadata => {
+                    const existSchemaPath = schemaPaths.find(path => path === entityMetadata.schemaPath);
+                    if (!existSchemaPath)
+                        schemaPaths.push(entityMetadata.schemaPath!);
+                });
+
+            const schema = connection.driver.options.schema;
+            if (schema && schemaPaths.indexOf(schema) === -1)
+                schemaPaths.push(schema);
+
+            await PromiseUtils.runInSequence(schemaPaths, schemaPath => queryRunner.createSchema(schemaPath, true));
+        }
+
+        await queryRunner.release();
+    }));
+
+    return connections;
 }
 
 /**

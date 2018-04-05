@@ -18,6 +18,8 @@ import {TransactionRepositoryMetadataArgs} from "./TransactionRepositoryMetadata
 import {MetadataUtils} from "../metadata-builder/MetadataUtils";
 import {GeneratedMetadataArgs} from "./GeneratedMetadataArgs";
 import {TreeMetadataArgs} from "./TreeMetadataArgs";
+import {UniqueMetadataArgs} from "./UniqueMetadataArgs";
+import {CheckMetadataArgs} from "./CheckMetadataArgs";
 
 /**
  * Storage all metadatas args of all available types: tables, columns, subscribers, relations, etc.
@@ -38,6 +40,8 @@ export class MetadataArgsStorage {
     readonly namingStrategies: NamingStrategyMetadataArgs[] = [];
     readonly entitySubscribers: EntitySubscriberMetadataArgs[] = [];
     readonly indices: IndexMetadataArgs[] = [];
+    readonly uniques: UniqueMetadataArgs[] = [];
+    readonly checks: CheckMetadataArgs[] = [];
     readonly columns: ColumnMetadataArgs[] = [];
     readonly generations: GeneratedMetadataArgs[] = [];
     readonly relations: RelationMetadataArgs[] = [];
@@ -104,6 +108,22 @@ export class MetadataArgsStorage {
         // todo: implement parent-entity overrides?
         return this.indices.filter(index => {
             return target instanceof Array ? target.indexOf(index.target) !== -1 : index.target === target;
+        });
+    }
+
+    filterUniques(target: Function|string): UniqueMetadataArgs[];
+    filterUniques(target: (Function|string)[]): UniqueMetadataArgs[];
+    filterUniques(target: (Function|string)|(Function|string)[]): UniqueMetadataArgs[] {
+        return this.uniques.filter(unique => {
+            return target instanceof Array ? target.indexOf(unique.target) !== -1 : unique.target === target;
+        });
+    }
+
+    filterChecks(target: Function|string): CheckMetadataArgs[];
+    filterChecks(target: (Function|string)[]): CheckMetadataArgs[];
+    filterChecks(target: (Function|string)|(Function|string)[]): CheckMetadataArgs[] {
+        return this.checks.filter(check => {
+            return target instanceof Array ? target.indexOf(check.target) !== -1 : check.target === target;
         });
     }
 
