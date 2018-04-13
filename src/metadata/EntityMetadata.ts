@@ -19,6 +19,8 @@ import {SqlServerConnectionOptions} from "../driver/sqlserver/SqlServerConnectio
 import {CannotCreateEntityIdMapError} from "../error/CannotCreateEntityIdMapError";
 import {TreeType} from "./types/TreeTypes";
 import {TreeMetadataArgs} from "../metadata-args/TreeMetadataArgs";
+import {UniqueMetadata} from "./UniqueMetadata";
+import {CheckMetadata} from "./CheckMetadata";
 
 /**
  * Contains all entity metadata.
@@ -391,6 +393,16 @@ export class EntityMetadata {
     indices: IndexMetadata[] = [];
 
     /**
+     * Entity's unique metadatas.
+     */
+    uniques: UniqueMetadata[] = [];
+
+    /**
+     * Entity's check metadatas.
+     */
+    checks: CheckMetadata[] = [];
+
+    /**
      * Entity's own listener metadatas.
      */
     ownListeners: EntityListenerMetadata[] = [];
@@ -588,6 +600,23 @@ export class EntityMetadata {
     }
 
     /**
+     * Finds column with a given property path.
+     */
+    findColumnWithPropertyPath(propertyPath: string): ColumnMetadata|undefined {
+        const column = this.columns.find(column => column.propertyPath === propertyPath);
+        if (column)
+            return column;
+
+        // in the case if column with property path was not found, try to find a relation with such property path
+        // if we find relation and it has a single join column then its the column user was seeking
+        const relation = this.relations.find(relation => relation.propertyPath === propertyPath);
+        if (relation && relation.joinColumns.length === 1)
+            return relation.joinColumns[0];
+
+        return undefined;
+    }
+
+    /**
      * Finds columns with a given property path.
      * Property path can match a relation, and relations can contain multiple columns.
      */
@@ -764,7 +793,7 @@ export class EntityMetadata {
     }
 
     /**
-     * Builds table path using database name and schema name and table name.
+     * Builds table path using database name, schema name and table name.
      */
     protected buildTablePath(): string {
         let tablePath = this.tableName;

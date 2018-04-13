@@ -1,5 +1,5 @@
 /**
- * Column types where precision and scale properties are used.
+ * Column types used for @PrimaryGeneratedColumn() decorator.
  */
 export type PrimaryGeneratedColumnType = "int" // mysql, mssql, oracle, sqlite
     |"int2" // postgres, sqlite
@@ -35,17 +35,13 @@ export type WithPrecisionColumnType = "float" // mysql, mssql, oracle, sqlite
     |"time without time zone" // postgres
     |"timestamp" // mysql, postgres, mssql, oracle
     |"timestamp without time zone" // postgres
-    |"timestamp with time zone"; // postgres, oracle
+    |"timestamp with time zone" // postgres, oracle
+    |"timestamp with local time zone"; // oracle
 
 /**
  * Column types where column length is used.
  */
-export type WithLengthColumnType = "int" // mysql, postgres, mssql, oracle, sqlite
-    |"tinyint" // mysql, mssql, sqlite
-    |"smallint" // mysql, postgres, mssql, oracle, sqlite
-    |"mediumint" // mysql, sqlite
-    |"bigint" // mysql, postgres, mssql, sqlite
-    |"character varying" // postgres
+export type WithLengthColumnType = "character varying" // postgres
     |"varying character" // sqlite
     |"nvarchar" // mssql
     |"character" // mysql, postgres, sqlite
@@ -55,8 +51,25 @@ export type WithLengthColumnType = "int" // mysql, postgres, mssql, oracle, sqli
     |"nchar" // mssql, oracle, sqlite
     |"varchar2" // oracle
     |"nvarchar2" // oracle, sqlite
+    |"raw" // oracle
     |"binary" // mssql
     |"varbinary"; // mssql
+
+export type WithWidthColumnType = "tinyint" // mysql
+    |"smallint" // mysql
+    |"mediumint" // mysql
+    |"int" // mysql
+    |"bigint"; // mysql
+
+/**
+ * Range types
+ */
+export type RangeColumnType = "int4range" // postgres
+    |"int8range" // postgres
+    |"numrange" // postgres
+    |"tsrange" // postgres
+    |"tstzrange" // postgres
+    |"daterange"; // postgres
 
 /**
  * All other regular column types.
@@ -93,6 +106,7 @@ export type SimpleColumnType =
     |"text" // mysql, postgres, mssql, sqlite
     |"ntext" // mssql
     |"citext" // postgres
+    |"hstore" // postgres
     |"longblob" // mysql
     |"longtext" // mysql
     |"bytea" // postgres
@@ -105,22 +119,31 @@ export type SimpleColumnType =
     |"image" // mssql
 
     // date types
+    |"timetz"
+    |"timestamptz"
     |"timestamp with local time zone" // oracle
     |"smalldatetime" // mssql
     |"date" // mysql, postgres, mssql, oracle, sqlite
-    |"interval year" // oracle
-    |"interval day" // oracle
+    |"interval year to month" // oracle
+    |"interval day to second" // oracle
     |"interval" // postgres
     |"year" // mysql
 
     // geometric types
-    |"point" // postgres
+    |"point" // postgres, mysql
     |"line" // postgres
     |"lseg" // postgres
     |"box" // postgres
     |"circle" // postgres
     |"path" // postgres
-    |"polygon" // postgres
+    |"polygon" // postgres, mysql
+    |"geography" // mssql
+    |"geometry" // mysql
+    |"linestring" // mysql
+    |"multipoint" // mysql
+    |"multilinestring" // mysql
+    |"multipolygon" // mysql
+    |"geometrycollection" // mysql
 
     // other types
     |"enum" // mysql, postgres
@@ -150,8 +173,10 @@ export type SimpleColumnType =
  */
 export type ColumnType = WithPrecisionColumnType
     |WithLengthColumnType
+    |WithWidthColumnType
     |SimpleColumnType
     |BooleanConstructor
     |DateConstructor
     |NumberConstructor
-    |StringConstructor;
+    |StringConstructor
+    |RangeColumnType;

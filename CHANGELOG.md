@@ -19,7 +19,7 @@ feel free to ask us and community.
 * `loadAllRelationIds` method of `QueryBuilder` now accepts list of relation paths that needs to be loaded, also `disableMixedMap` option is now by default set to false, but you can enable it via new method parameter `options`
 * now `returning` and `output` statements of `InsertQueryBuilder` support array of columns as argument
 * now when many-to-many and one-to-many relation set to `null` all items from that relation are removed, just like it would be set to empty array
-* fixed issues with relation updation from one-to-one non-owner side
+* fixed issues with relation update from one-to-one non-owner side
 * now version column is updated on the database level, not by ORM anymore
 * now created date and update date columns is set on the database level, not by ORM anymore (e.g. using `CURRENT_TIMESTAMP` as a default value)
 * now `InsertQueryBuilder`, `UpdateQueryBuilder` and `DeleteQueryBuilder` automatically update entities after execution.
@@ -57,6 +57,40 @@ By default its true.
 * breaking change on how array parameters work in queries - now instead of (:param) new syntax must be used (:...param).
 This fixed various issues on how real arrays must work
 * changed the way how entity schemas are created (now more type-safe), now interface EntitySchema is a class
+* added `@Unique` decorator. Accepts custom unique constraint name and columns to be unique. Used only on as 
+composite unique constraint, on table level. E.g. `@Unique("uq_id_name", ["id", "name"])`
+* added `@Check` decorator. Accepts custom check constraint name and expression. Used only on as 
+composite check constraint, on table level. E.g. `@Check("chk_name", "name <> 'asd'")`
+* fixed `Oracle` issues, now it will be fully maintained as other drivers 
+* implemented migrations functionality in all drivers
+* CLI commands changed from `migrations:create`, `migrations:generate`, `migrations:revert` and `migrations:run` to `migration:create`, `migration:generate`, `migration:revert` and `migration:run`
+* changed the way how migrations work (more info in #1315). Now migration table contains `id` column with auto-generated keys, you need to re-create migrations table or add new column manually.
+* entity schemas syntax was changed
+* dropped support for WebSql and SystemJS
+
+## 0.1.19
+
+* fixed bug in InsertQueryBuilder
+
+## 0.1.18
+
+* fixed timestamp issues
+
+## 0.1.17
+
+* fixed issue with entity order by applied to update query builder
+
+## 0.1.16
+
+* security and bug fixes
+
+## 0.1.15
+
+* security and bug fixes
+
+## 0.1.14
+
+* optimized hydration performance ([#1672](https://github.com/typeorm/typeorm/pull/1672))
 
 ## 0.1.13
 

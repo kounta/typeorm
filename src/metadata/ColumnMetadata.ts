@@ -60,6 +60,11 @@ export class ColumnMetadata {
     length: string = "";
 
     /**
+     * Type's display width in the database.
+     */
+    width?: number;
+
+    /**
      * Defines column character set.
      */
     charset?: string;
@@ -78,11 +83,6 @@ export class ColumnMetadata {
      * Indicates if this column is generated (auto increment or generated other way).
      */
     isGenerated: boolean = false;
-
-    /**
-     * Indicates if column value in the database should be unique or not.
-     */
-    isUnique: boolean = false;
 
     /**
      * Indicates if column can contain nulls or not.
@@ -116,10 +116,15 @@ export class ColumnMetadata {
     default?: any;
 
     /**
+     * ON UPDATE trigger. Works only for MySQL.
+     */
+    onUpdate?: string;
+
+    /**
      * The precision for a decimal (exact numeric) column (applies only for decimal column),
      * which is the maximum number of digits that are stored for the values.
      */
-    precision?: number;
+    precision?: number|null;
 
     /**
      * The scale for a decimal (exact numeric) column (applies only for decimal column),
@@ -128,9 +133,36 @@ export class ColumnMetadata {
     scale?: number;
 
     /**
+     * Puts ZEROFILL attribute on to numeric column. Works only for MySQL.
+     * If you specify ZEROFILL for a numeric column, MySQL automatically adds the UNSIGNED attribute to the column
+     */
+    zerofill: boolean = false;
+
+    /**
+     * Puts UNSIGNED attribute on to numeric column. Works only for MySQL.
+     */
+    unsigned: boolean = false;
+
+    /**
      * Array of possible enumerated values.
      */
     enum?: any[];
+
+    /**
+     * Generated column expression. Supports only in MySQL.
+     */
+    asExpression?: string;
+
+    /**
+     * Generated column type. Supports only in MySQL.
+     */
+    generatedType?: "VIRTUAL"|"STORED";
+
+    /**
+     * Return type of HSTORE column.
+     * Returns value as string or as object.
+     */
+    hstoreType?: string;
 
     /**
      * Indicates if this column is an array.
@@ -144,6 +176,12 @@ export class ColumnMetadata {
      * If property is not in embeds then it returns just property name of the column.
      */
     propertyPath: string;
+
+    /**
+     * Same as property path, but dots are replaced with '_'.
+     * Used in query builder statements.
+     */
+    propertyAliasName: string;
 
     /**
      * Gets full path to this column database name (including column database name).
@@ -267,14 +305,14 @@ export class ColumnMetadata {
             this.type = options.args.options.type;
         if (options.args.options.length)
             this.length = options.args.options.length ? options.args.options.length.toString() : "";
+        if (options.args.options.width)
+            this.width = options.args.options.width;
         if (options.args.options.charset)
             this.charset = options.args.options.charset;
         if (options.args.options.collation)
             this.collation = options.args.options.collation;
         if (options.args.options.primary)
             this.isPrimary = options.args.options.primary;
-        if (options.args.options.unique)
-            this.isUnique = options.args.options.unique;
         if (options.args.options.default === null) // to make sure default: null is the same as nullable: true
             this.isNullable = true;
         if (options.args.options.nullable !== undefined)
@@ -287,9 +325,17 @@ export class ColumnMetadata {
             this.comment = options.args.options.comment;
         if (options.args.options.default !== undefined)
             this.default = options.args.options.default;
-        if (options.args.options.scale)
+        if (options.args.options.onUpdate)
+            this.onUpdate = options.args.options.onUpdate;
+        if (options.args.options.scale !== null && options.args.options.scale !== undefined)
             this.scale = options.args.options.scale;
-        if (options.args.options.precision)
+        if (options.args.options.zerofill) {
+            this.zerofill = options.args.options.zerofill;
+            this.unsigned = true; // if you specify ZEROFILL for a numeric column, MySQL automatically adds the UNSIGNED attribute to the column
+        }
+        if (options.args.options.unsigned)
+            this.unsigned = options.args.options.unsigned;
+        if (options.args.options.precision !== undefined)
             this.precision = options.args.options.precision;
         if (options.args.options.enum) {
             if (options.args.options.enum instanceof Object) {
@@ -301,6 +347,12 @@ export class ColumnMetadata {
                 this.enum = options.args.options.enum;
             }
         }
+        if (options.args.options.asExpression) {
+            this.asExpression = options.args.options.asExpression;
+            this.generatedType = options.args.options.generatedType ? options.args.options.generatedType : "VIRTUAL";
+        }
+        if (options.args.options.hstoreType)
+            this.hstoreType = options.args.options.hstoreType;
         if (options.args.options.array)
             this.isArray = options.args.options.array;
         if (options.args.mode) {
@@ -316,17 +368,19 @@ export class ColumnMetadata {
         if (this.isTreeLevel)
             this.type = options.connection.driver.mappedDataTypes.treeLevel;
         if (this.isCreateDate) {
-            this.type = options.connection.driver.mappedDataTypes.createDate;
+            if (!this.type)
+                this.type = options.connection.driver.mappedDataTypes.createDate;
             if (!this.default)
                 this.default = () => options.connection.driver.mappedDataTypes.createDateDefault;
-            if (!this.precision && options.connection.driver.mappedDataTypes.createDatePrecision)
+            if (this.precision === undefined && options.connection.driver.mappedDataTypes.createDatePrecision)
                 this.precision = options.connection.driver.mappedDataTypes.createDatePrecision;
         }
         if (this.isUpdateDate) {
-            this.type = options.connection.driver.mappedDataTypes.updateDate;
+            if (!this.type)
+                this.type = options.connection.driver.mappedDataTypes.updateDate;
             if (!this.default)
                 this.default = () => options.connection.driver.mappedDataTypes.updateDateDefault;
-            if (!this.precision && options.connection.driver.mappedDataTypes.updateDatePrecision)
+            if (this.precision === undefined && options.connection.driver.mappedDataTypes.updateDatePrecision)
                 this.precision = options.connection.driver.mappedDataTypes.updateDatePrecision;
         }
         if (this.isVersion)
@@ -462,10 +516,11 @@ export class ColumnMetadata {
      * Extracts column value from the given entity.
      * If column is in embedded (or recursive embedded) it extracts its value from there.
      */
-     getEntityValue(entity: ObjectLiteral): any|undefined {
+     getEntityValue(entity: ObjectLiteral, transform: boolean = false): any|undefined {
         // if (entity === undefined || entity === null) return undefined; // uncomment if needed
 
         // extract column value from embeddeds of entity if column is in embedded
+        let value: any = undefined;
         if (this.embeddedMetadata) {
 
             // example: post[data][information][counters].id where "data", "information" and "counters" are embeddeds
@@ -487,35 +542,49 @@ export class ColumnMetadata {
                 if (this.relationMetadata && this.referencedColumn) {
                     const relatedEntity = this.relationMetadata.getEntityValue(embeddedObject);
                     if (relatedEntity && relatedEntity instanceof Object) {
-                        return this.referencedColumn.getEntityValue(PromiseUtils.extractValue(relatedEntity));
+                        value = this.referencedColumn.getEntityValue(PromiseUtils.extractValue(relatedEntity));
 
                     } else if (embeddedObject[this.propertyName] && embeddedObject[this.propertyName] instanceof Object) {
-                        return this.referencedColumn.getEntityValue(PromiseUtils.extractValue(embeddedObject[this.propertyName]));
+                        value = this.referencedColumn.getEntityValue(PromiseUtils.extractValue(embeddedObject[this.propertyName]));
+
+                    } else {
+                        value = PromiseUtils.extractValue(embeddedObject[this.propertyName]);
+
                     }
 
                 } else if (this.referencedColumn) {
-                    return this.referencedColumn.getEntityValue(PromiseUtils.extractValue(embeddedObject[this.propertyName]));
+                    value = this.referencedColumn.getEntityValue(PromiseUtils.extractValue(embeddedObject[this.propertyName]));
+
+                } else {
+                    value = PromiseUtils.extractValue(embeddedObject[this.propertyName]);
                 }
-                return PromiseUtils.extractValue(embeddedObject[this.propertyName]);
             }
-            return undefined;
 
         } else { // no embeds - no problems. Simply return column name by property name of the entity
             if (this.relationMetadata && this.referencedColumn) {
                 const relatedEntity = this.relationMetadata.getEntityValue(entity);
                 if (relatedEntity && relatedEntity instanceof Object && !(relatedEntity instanceof Function)) {
-                    return this.referencedColumn.getEntityValue(PromiseUtils.extractValue(relatedEntity));
+                    value = this.referencedColumn.getEntityValue(PromiseUtils.extractValue(relatedEntity));
 
                 } else if (entity[this.propertyName] && entity[this.propertyName] instanceof Object && !(entity[this.propertyName] instanceof Function)) {
-                    return this.referencedColumn.getEntityValue(PromiseUtils.extractValue(entity[this.propertyName]));
+                    value = this.referencedColumn.getEntityValue(PromiseUtils.extractValue(entity[this.propertyName]));
+
+                } else {
+                    value = entity[this.propertyName];
                 }
 
             } else if (this.referencedColumn) {
-                return this.referencedColumn.getEntityValue(PromiseUtils.extractValue(entity[this.propertyName]));
-            }
+                value = this.referencedColumn.getEntityValue(PromiseUtils.extractValue(entity[this.propertyName]));
 
-            return entity[this.propertyName];
+            } else {
+                value = entity[this.propertyName];
+            }
         }
+
+        if (transform && this.transformer)
+            value = this.transformer.to(value);
+
+        return value;
     }
 
     /**
@@ -554,6 +623,7 @@ export class ColumnMetadata {
 
     build(connection: Connection): this {
         this.propertyPath = this.buildPropertyPath();
+        this.propertyAliasName = this.propertyPath.replace(".", "_");
         this.databaseName = this.buildDatabaseName(connection);
         this.databasePath = this.buildDatabasePath();
         this.databaseNameWithoutPrefixes = connection.namingStrategy.columnName(this.propertyName, this.givenDatabaseName, []);
@@ -570,7 +640,7 @@ export class ColumnMetadata {
         // we add reference column to property path only if this column is virtual
         // because if its not virtual it means user defined a real column for this relation
         // also we don't do it if column is inside a junction table
-        if (!    this.entityMetadata.isJunction && this.isVirtual && this.referencedColumn && this.referencedColumn.propertyName !== this.propertyName)
+        if (!this.entityMetadata.isJunction && this.isVirtual && this.referencedColumn && this.referencedColumn.propertyName !== this.propertyName)
             path += "." + this.referencedColumn.propertyName;
 
         return path;
